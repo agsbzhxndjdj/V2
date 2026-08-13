@@ -1,8 +1,10 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -75,29 +77,78 @@ class Page {
 }
 
 class Tg {
-  static Future<String> _fetchHtml(String url) async {
-    const uas = [
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-      'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
-      'Mozilla/5.0 (compatible; Bingbot/2.0; +http://www.bing.com/bingbot.htm)',
-      'TelegramBot (like TwitterBot)',
-    ];
-    String last = '';
-    for (final ua in uas) {
+  static String _jsStr(dynamic r) {
+    var s = r.toString();
+    if (s.startsWith('"') && s.endsWith('"')) {
       try {
-        final r = await Dio(BaseOptions(headers: {
-          'User-Agent': ua,
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
-        }, receiveTimeout: const Duration(seconds: 20)))
-            .get(url);
-        last = r.data.toString();
-        if (last.contains('data-post="') || last.contains('tgme_widget_message')) {
-          return last;
+        s = jsonDecode(s) as String;
+      } catch (_) {
+        s = s
+            .substring(1, s.length - 1)
+            .replaceAll(r'\"', '"')
+            .replaceAll(r'\/', '/')
+            .replaceAll(r'\n', '\n');
+      }
+    }
+    return s;
+  }
+
+  static Future<String> _webviewHtml(String url) async {
+    final controller = WebViewController();
+    await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
+    await controller.setUserAgent(
+        'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36');
+    await controller.loadRequest(Uri.parse(url));
+    String html = '';
+    for (var i = 0; i < 40; i++) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      try {
+        final st = _jsStr(
+            await controller.runJavaScriptReturningResult('document.readyState'));
+        if (st == 'complete') {
+          html = _jsStr(await controller
+              .runJavaScriptReturningResult('document.documentElement.outerHTML'));
+          break;
         }
       } catch (_) {}
     }
-    return last;
+    if (html.contains('data-post="') || html.contains('tgme_widget_message')) {
+      return html;
+    }
+    if (html.contains('Preview channel') || html.contains('tgme_action_button')) {
+      try {
+        await controller.runJavaScript(
+            "var b=[...document.querySelectorAll('a')].find(a=>(a.textContent||'').includes('Preview'));if(b)b.click();");
+        for (var i = 0; i < 30; i++) {
+          await Future.delayed(const Duration(milliseconds: 500));
+          final h = _jsStr(await controller
+              .runJavaScriptReturningResult('document.documentElement.outerHTML'));
+          if (h.isNotEmpty) html = h;
+          if (h.contains('data-post="') || h.contains('tgme_widget_message')) break;
+        }
+      } catch (_) {}
+    }
+    return html;
+  }
+
+  static Future<String> _fetchHtml(String url) async {
+    try {
+      final r = await Dio(BaseOptions(headers: {
+        'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+        'Accept':
+            'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
+      }, receiveTimeout: const Duration(seconds: 8)))
+          .get(url);
+      final s = r.data.toString();
+      if (s.contains('data-post="') || s.contains('tgme_widget_message')) return s;
+    } catch (_) {}
+    try {
+      final w = await _webviewHtml(url);
+      if (w.isNotEmpty) return w;
+    } catch (_) {}
+    return '';
   }
 
   static Future<String> raw(String user) => _fetchHtml('https://t.me/s/$user');
