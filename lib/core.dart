@@ -3,8 +3,6 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 
 /* ======== إعدادات الخادم ======== */
 class ApiConfig {
@@ -128,8 +126,13 @@ class Tg {
     return s.replaceFirst('@', '');
   }
 
+  /// رابط بث الفيديو من السيرفر
   static String streamUrl(String user, int msgId) =>
       '${ApiConfig.baseUrl}/stream/$user/$msgId?key=${ApiConfig.apiKey}';
+
+  /// رابط البوستر (thumbnail) من السيرفر
+  static String posterUrl(String user, int msgId) =>
+      '${ApiConfig.baseUrl}/poster/$user/$msgId?key=${ApiConfig.apiKey}';
 
   static Future<Page> fetchPage(String user, {int? before}) async {
     if (before != null) return Page([], null, user, null);
@@ -153,14 +156,14 @@ class Tg {
       final caption = (item['text'] ?? '').toString();
       final date =
           ((item['date'] is num) ? (item['date'] as num).toInt() : 0) * 1000;
-      movies.add(_build(user, mid, streamUrl(user, mid), caption, date,
+      movies.add(_build(user, mid, caption, date,
           (item['duration'] ?? '').toString(), (item['size'] ?? '').toString()));
     }
     return Page(movies, null, title, avatar);
   }
 
-  static Movie _build(String ch, int mid, String video, String caption,
-      int date, String dur, String size) {
+  static Movie _build(String ch, int mid, String caption, int date,
+      String dur, String size) {
     final lines = caption
         .split('\n')
         .map((e) => e.trim())
@@ -191,8 +194,8 @@ class Tg {
         channel: ch,
         msgId: mid,
         title: title,
-        poster: '',
-        videoUrl: video,
+        poster: posterUrl(ch, mid),
+        videoUrl: streamUrl(ch, mid),
         description: desc.join('\n'),
         genres: genres,
         quality: quality,
@@ -202,7 +205,7 @@ class Tg {
   }
 }
 
-/* ======== التخزين + المزامنة ======== */
+/* ======== التخزين ======== */
 class Store {
   static late Box _ch, _mv, _st;
   static final ValueNotifier<int> tick = ValueNotifier(0);
@@ -212,9 +215,6 @@ class Store {
     _mv = await Hive.openBox('movies');
     _st = await Hive.openBox('state');
   }
-
-  static bool isGuest() => _st.get('guest', defaultValue: false);
-  static Future setGuest(bool v) => _st.put('guest', v);
 
   static List<Channel> channels() => _ch.values
       .map((e) => Channel.fromJson(Map<String, dynamic>.from(e)))
@@ -270,36 +270,6 @@ class Store {
     d.remove(id);
     await _st.put('downloads', d);
     tick.value++;
-  }
-
-  static Future sync() async {
-    final u = FirebaseAuth.instance.currentUser;
-    if (u == null) return;
-    final ref = FirebaseFirestore.instance.collection('users').doc(u.uid);
-    final snap = await ref.get();
-    if (snap.exists) {
-      final d = snap.data()!;
-      final localCh = channels().map((e) => e.username).toSet();
-      for (final c in (d['channels'] as List? ?? [])) {
-        final ch = Channel.fromJson(Map<String, dynamic>.from(c));
-        if (!localCh.contains(ch.username)) await addChannel(ch);
-      }
-      final merged = history();
-      final ids = merged.map((e) => e.id).toSet();
-      for (final h in (d['history'] as List? ?? [])) {
-        final m = Movie.fromJson(Map<String, dynamic>.from(h));
-        if (!ids.contains(m.id)) merged.add(m);
-      }
-      await _st.put('history', merged.map((e) => e.toJson()).toList());
-      tick.value++;
-    }
-    await ref.set({
-      'name': u.displayName ?? '',
-      'email': u.email ?? '',
-      'channels': channels().map((e) => e.toJson()).toList(),
-      'history': history().map((e) => e.toJson()).toList(),
-      'updated': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
   }
 }
 
