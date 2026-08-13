@@ -1,49 +1,51 @@
 import 'dart:io';
-import 'package:cached_network_image/cached_network_image.dart';
-import 'package:chewie/chewie.dart';
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:video_player/video_player.dart';
+import 'package:chewie/chewie.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'core.dart';
 
-class HomeShell extends StatefulWidget {
+/* ======== الهيكل الرئيسي ======== */
+class HomeShell extends StatelessWidget {
   const HomeShell({super.key});
-  @override
-  State<HomeShell> createState() => _HomeShellState();
-}
-
-class _HomeShellState extends State<HomeShell> {
-  @override
-  void initState() {
-    super.initState();
-    Sync.start();
-  }
-
   @override
   Widget build(BuildContext context) => ValueListenableBuilder<int>(
       valueListenable: App.tab,
       builder: (ctx, tab, _) => Scaffold(
-            body: IndexedStack(
-              index: tab,
-              children: const [
-                HomePage(), HistoryPage(), DownloadsPage(), ChannelsPage()
-              ],
-            ),
+            body: const IndexedStack(children: [
+              HomePage(),
+              HistoryPage(),
+              DownloadsPage(),
+              ChannelsPage()
+            ]),
             bottomNavigationBar: NavigationBar(
               selectedIndex: tab,
-              onDestinationSelected: (i) {
-                if (i == 0) App.scope.value = 'all';
-                App.tab.value = i;
-              },
+              onDestinationSelected: (i) => App.tab.value = i,
               destinations: const [
-                NavigationDestination(icon: Icon(Icons.movie), label: 'الأفلام'),
-                NavigationDestination(icon: Icon(Icons.history), label: 'شاهدتها'),
-                NavigationDestination(icon: Icon(Icons.download), label: 'تحميلاتي'),
-                NavigationDestination(icon: Icon(Icons.rss_feed), label: 'القنوات'),
+                NavigationDestination(
+                    icon: Icon(Icons.movie_outlined),
+                    selectedIcon: Icon(Icons.movie),
+                    label: 'الأفلام'),
+                NavigationDestination(
+                    icon: Icon(Icons.history_outlined),
+                    selectedIcon: Icon(Icons.history),
+                    label: 'شاهدتها'),
+                NavigationDestination(
+                    icon: Icon(Icons.download_outlined),
+                    selectedIcon: Icon(Icons.download),
+                    label: 'تحميلاتي'),
+                NavigationDestination(
+                    icon: Icon(Icons.rss_feed_outlined),
+                    selectedIcon: Icon(Icons.rss_feed),
+                    label: 'القنوات'),
               ],
             ),
           ));
 }
 
+/* ======== صفحة الأفلام ======== */
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
   @override
@@ -52,182 +54,275 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   final _search = TextEditingController();
+  final _scroll = ScrollController();
+  bool _busy = false, _more = false, _searching = false;
+  final Map<String, int?> _cursor = {};
+  final Set<String> _done = {};
+
+  List<Movie> get _source =>
+      App.scope.value == 'all' ? Store.all() : Store.moviesOf(App.scope.value);
+
+  @override
+  void initState() {
+    super.initState();
+    _scroll.addListener(() {
+      if (_scroll.position.pixels >= _scroll.position.maxScrollExtent - 300) {
+        _loadMore();
+      }
+    });
+    if (Store.channels().isNotEmpty && Store.all().isEmpty) _refresh();
+  }
 
   @override
   void dispose() {
+    _scroll.dispose();
     _search.dispose();
     super.dispose();
   }
 
-  String _scopeTitle(String scope) {
-    for (final c in Store.channels()) {
-      if (c.username == scope) return c.title.isEmpty ? c.username : c.title;
-    }
-    return scope;
+  Future _refresh() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    await Future.wait(Store.channels().map((c) async {
+      try {
+        final p = await Tg.fetchPage(c.username);
+        final old = Store.moviesOf(c.username);
+        final ids = p.movies.map((e) => e.msgId).toSet();
+        await Store.saveMovies(c.username,
+            [...p.movies, ...old.where((e) => !ids.contains(e.msgId))]);
+        _cursor[c.username] = p.before;
+        if (p.before == null) _done.add(c.username);
+      } catch (_) {}
+    }));
+    if (mounted) setState(() => _busy = false);
+  }
+
+  Future _loadMore() async {
+    if (_more) return;
+    setState(() => _more = true);
+    final chs = App.scope.value == 'all'
+        ? Store.channels()
+        : Store.channels()
+            .where((c) => c.username == App.scope.value)
+            .toList();
+    await Future.wait(chs.map((c) async {
+      if (_done.contains(c.username)) return;
+      try {
+        final p = await Tg.fetchPage(c.username, before: _cursor[c.username]);
+        if (p.movies.isEmpty || p.before == null) _done.add(c.username);
+        final old = Store.moviesOf(c.username);
+        final ids = old.map((e) => e.msgId).toSet();
+        await Store.saveMovies(c.username,
+            [...old, ...p.movies.where((e) => !ids.contains(e.msgId))]);
+        _cursor[c.username] = p.before;
+      } catch (_) {}
+    }));
+    if (mounted) setState(() => _more = false);
   }
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<String>(
-        valueListenable: App.scope,
-        builder: (_, scope, __) {
-          final source = scope == 'all' ? Store.all() : Store.moviesOf(scope);
-          final movies = Search.run(source, _search.text);
-          return Scaffold(
-            appBar: AppBar(title: const Text('تلي سينما'), actions: [
-              IconButton(
-                  icon: const Icon(Icons.refresh),
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                        content: Text('جارٍ التحقق من الأفلام الجديدة…'),
-                        behavior: SnackBarBehavior.floating));
-                    Sync.checkAll();
-                  }),
-            ]),
-            body: ValueListenableBuilder<int>(
-                valueListenable: Store.tick,
-                builder: (_, ___, ____) => Column(children: [
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-                        child: TextField(
-                          controller: _search,
-                          onChanged: (_) => setState(() {}),
-                          decoration: InputDecoration(
-                            hintText: 'ابحث عن فيلم…',
-                            hintStyle: const TextStyle(fontSize: 13),
-                            prefixIcon: const Icon(Icons.search, size: 20),
-                            filled: true, fillColor: const Color(0xFF151B23),
-                            border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(14),
-                                borderSide: BorderSide.none),
-                          ),
-                        ),
-                      ),
-                      if (scope != 'all')
-                        Container(
-                          margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          decoration: BoxDecoration(
-                              color: const Color(0xFF151B23),
-                              borderRadius: BorderRadius.circular(12)),
-                          child: Row(children: [
-                            const Icon(Icons.rss_feed, size: 16, color: Colors.amber),
-                            const SizedBox(width: 8),
-                            Expanded(child: Text('أفلام قناة: ${_scopeTitle(scope)}',
-                                style: const TextStyle(fontSize: 12))),
-                            GestureDetector(
-                                onTap: () => App.scope.value = 'all',
-                                child: const Text('عرض الكل ✕',
-                                    style: TextStyle(fontSize: 12, color: Colors.amber))),
-                          ]),
-                        ),
-                      Expanded(
-                        child: movies.isEmpty
-                            ? const Center(child: Text('لا توجد أفلام بعد',
-                                style: TextStyle(color: Colors.grey)))
-                            : GridView.builder(
-                                padding: const EdgeInsets.all(8),
-                                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                                    crossAxisCount: 3, childAspectRatio: 0.55,
-                                    mainAxisSpacing: 8, crossAxisSpacing: 8),
-                                itemCount: movies.length,
-                                itemBuilder: (_, i) => MovieCard(m: movies[i]),
-                              ),
-                      ),
-                    ])),
-          );
-        });
-  }
-}
-
-class MovieCard extends StatelessWidget {
-  final Movie m;
-  const MovieCard({super.key, required this.m});
-  @override
-  Widget build(BuildContext context) {
-    final dl = Store.downloads().containsKey(m.id);
-    final watched = Store.history().any((e) => e.id == m.id);
-    return GestureDetector(
-      onTap: () => Navigator.push(context,
-          MaterialPageRoute(builder: (_) => DetailScreen(m: m))),
-      child: Card(
-        clipBehavior: Clip.antiAlias,
-        child: Stack(fit: StackFit.expand, children: [
-          Column(children: [
-            Expanded(child: CachedNetworkImage(imageUrl: m.poster, fit: BoxFit.cover,
-                placeholder: (_, __) => Container(color: const Color(0xFF151B23)),
-                errorWidget: (_, __, ___) => Container(color: const Color(0xFF151B23),
-                    child: const Icon(Icons.movie_outlined, size: 40, color: Colors.grey)))),
-            Padding(padding: const EdgeInsets.all(4),
-                child: Text(m.title, maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold))),
-          ]),
-          Positioned(top: 4, left: 4, child: Row(children: [
-            if (watched) const Icon(Icons.check_circle, size: 15, color: Colors.green),
-            if (dl) const Icon(Icons.download_done, size: 15, color: Colors.amber),
-          ])),
-          if (m.quality.isNotEmpty)
-            Positioned(top: 4, right: 4, child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                decoration: BoxDecoration(color: Colors.amber, borderRadius: BorderRadius.circular(4)),
-                child: Text(m.quality, style: const TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Colors.black)))),
-        ]),
+    final movies = Search.run(_source, _search.text);
+    return Scaffold(
+      appBar: AppBar(title: const Text('تلي سينما'), actions: [
+        IconButton(
+            icon: const Icon(Icons.search),
+            onPressed: () => setState(() => _searching = !_searching)),
+        IconButton(icon: const Icon(Icons.refresh), onPressed: _refresh),
+        const AccountMenu(),
+      ], bottom: _searching
+          ? PreferredSize(
+              preferredSize: const Size.fromHeight(56),
+              child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+                  child: TextField(
+                      controller: _search,
+                      onChanged: (_) => setState(() {}),
+                      decoration: InputDecoration(
+                          hintText: 'ابحث عن فيلم…',
+                          prefixIcon: const Icon(Icons.search),
+                          filled: true,
+                          fillColor: const Color(0xFF151B23),
+                          border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(14),
+                              borderSide: BorderSide.none)))))
+          : null),
+      body: RefreshIndicator(
+        onRefresh: _refresh,
+        child: movies.isEmpty
+            ? ListView(children: const [
+                SizedBox(height: 150),
+                Center(
+                    child: Text('لا توجد أفلام بعد — أضف قناة من تبويب القنوات',
+                        style: TextStyle(color: Colors.grey)))
+              ])
+            : GridView.builder(
+                controller: _scroll,
+                padding: const EdgeInsets.all(8),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 3, childAspectRatio: 0.55),
+                itemCount: movies.length,
+                itemBuilder: (_, i) => MovieCard(m: movies[i]),
+              ),
       ),
     );
   }
 }
 
-class DetailScreen extends StatelessWidget {
+/* ======== بطاقة فيلم ======== */
+class MovieCard extends StatelessWidget {
   final Movie m;
-  const DetailScreen({super.key, required this.m});
+  const MovieCard({super.key, required this.m});
+
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(m.title)),
-    body: SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        ClipRRect(borderRadius: BorderRadius.circular(12),
-            child: CachedNetworkImage(imageUrl: m.poster, height: 300, width: double.infinity, fit: BoxFit.cover,
-                errorWidget: (_, __, ___) => Container(height: 300, color: const Color(0xFF151B23),
-                    child: const Icon(Icons.movie, size: 60, color: Colors.grey)))),
-        const SizedBox(height: 16),
-        Text(m.title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 8),
-        if (m.genres.isNotEmpty)
-          Text(m.genres.join(' | '), style: const TextStyle(color: Colors.amber, fontSize: 13)),
-        const SizedBox(height: 8),
-        Text(m.description, style: TextStyle(height: 1.7, color: Colors.grey.shade300, fontSize: 13.5)),
-        const SizedBox(height: 20),
-        Row(children: [
-          Expanded(child: FilledButton.icon(
-            onPressed: () => Navigator.push(context,
-                MaterialPageRoute(builder: (_) => PlayerScreen(m: m))),
-            icon: const Icon(Icons.play_arrow), label: const Text('مشاهدة'))),
-          const SizedBox(width: 10),
-          Expanded(child: OutlinedButton.icon(
-            onPressed: () {
-              Downloader.start(m);
-              ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('بدأ التحميل — تابعه من تبويب تحميلاتي')));
-            },
-            icon: const Icon(Icons.download), label: const Text('تحميل'))),
-        ]),
-      ]),
-    ),
-  );
+  Widget build(BuildContext context) => Card(
+        clipBehavior: Clip.antiAlias,
+        margin: const EdgeInsets.all(6),
+        child: InkWell(
+          onTap: () => Navigator.push(context,
+              MaterialPageRoute(builder: (_) => PlayerScreen(m: m))),
+          child: Stack(fit: StackFit.expand, children: [
+            m.poster.isNotEmpty
+                ? CachedNetworkImage(
+                    imageUrl: m.poster,
+                    fit: BoxFit.cover,
+                    errorWidget: (_, __, ___) => const Center(
+                        child: Icon(Icons.movie_filter,
+                            size: 42, color: Colors.amber)))
+                : Container(
+                    color: const Color(0xFF1B2430),
+                    child: const Center(
+                        child: Icon(Icons.movie_filter,
+                            size: 42, color: Colors.amber))),
+            Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: Container(
+                    padding: const EdgeInsets.fromLTRB(6, 14, 6, 6),
+                    decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [Colors.transparent, Colors.black87])),
+                    child: Text(m.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 11, fontWeight: FontWeight.bold)))),
+            if (m.quality.isNotEmpty)
+              Positioned(
+                  top: 6,
+                  right: 6,
+                  child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                          color: Colors.amber,
+                          borderRadius: BorderRadius.circular(6)),
+                      child: Text(m.quality,
+                          style: const TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black)))),
+            if (m.duration.isNotEmpty)
+              Positioned(
+                  bottom: 30,
+                  left: 6,
+                  child: Text(m.duration,
+                      style: const TextStyle(fontSize: 9, color: Colors.white70))),
+            Positioned(
+                top: 4,
+                left: 4,
+                child: ValueListenableBuilder<Map<String, double>>(
+                    valueListenable: Downloader.progress,
+                    builder: (_, prog, __) => prog.containsKey(m.id)
+                        ? SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, value: prog[m.id]))
+                        : IconButton(
+                            icon: const Icon(Icons.download_for_offline,
+                                size: 20, color: Colors.white70),
+                            onPressed: () => Downloader.start(m)))),
+          ]),
+        ),
+      );
 }
 
+/* ======== المشغل (بث من السيرفر) ======== */
 class PlayerScreen extends StatefulWidget {
   final Movie m;
-  final String? path;
-  const PlayerScreen({super.key, required this.m, this.path});
+  const PlayerScreen({super.key, required this.m});
   @override
   State<PlayerScreen> createState() => _PlayerScreenState();
 }
 
 class _PlayerScreenState extends State<PlayerScreen> {
-  VideoPlayerController? _v;
-  ChewieController? _c;
+  ChewieController? _cc;
+  VideoPlayerController? _vp;
+  bool _err = false;
+
+  @override
+  void initState() {
+    super.initState();
+    Store.markWatched(widget.m);
+    _init();
+  }
+
+  Future _init() async {
+    try {
+      final c = VideoPlayerController.networkUrl(Uri.parse(widget.m.videoUrl));
+      await c.initialize();
+      if (!mounted) {
+        c.dispose();
+        return;
+      }
+      setState(() {
+        _vp = c;
+        _cc = ChewieController(
+            videoPlayerController: c,
+            aspectRatio: c.value.aspectRatio,
+            autoPlay: false,
+            allowFullScreen: true);
+      });
+    } catch (_) {
+      if (mounted) setState(() => _err = true);
+    }
+  }
+
+  @override
+  void dispose() {
+    _cc?.dispose();
+    _vp?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: Text(widget.m.title)),
+        body: _err
+            ? const Center(
+                child: Text('تعذر تشغيل الفيديو — جرّب التحديث لاحقاً',
+                    style: TextStyle(color: Colors.grey)))
+            : _cc == null
+                ? const Center(child: CircularProgressIndicator())
+                : Center(child: Chewie(controller: _cc!)),
+      );
+}
+
+/* ======== مشغل الملفات المحلية ======== */
+class LocalPlayerScreen extends StatefulWidget {
+  final String title, path;
+  const LocalPlayerScreen({super.key, required this.title, required this.path});
+  @override
+  State<LocalPlayerScreen> createState() => _LocalPlayerScreenState();
+}
+
+class _LocalPlayerScreenState extends State<LocalPlayerScreen> {
+  ChewieController? _cc;
+  VideoPlayerController? _vp;
   bool _err = false;
 
   @override
@@ -238,99 +333,126 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Future _init() async {
     try {
-      final v = widget.path != null
-          ? VideoPlayerController.file(File(widget.path!))
-          : VideoPlayerController.networkUrl(Uri.parse(widget.m.videoUrl));
-      await v.initialize();
-      Store.markWatched(widget.m);
-      _v = v;
-      setState(() => _c = ChewieController(videoPlayerController: v,
-          aspectRatio: v.value.aspectRatio == 0 ? 16 / 9 : v.value.aspectRatio,
-          allowFullScreen: true));
+      final c = VideoPlayerController.file(File(widget.path));
+      await c.initialize();
+      if (!mounted) {
+        c.dispose();
+        return;
+      }
+      setState(() {
+        _vp = c;
+        _cc = ChewieController(
+            videoPlayerController: c,
+            aspectRatio: c.value.aspectRatio,
+            autoPlay: false,
+            allowFullScreen: true);
+      });
     } catch (_) {
-      setState(() => _err = true);
+      if (mounted) setState(() => _err = true);
     }
   }
 
   @override
   void dispose() {
-    _c?.dispose();
-    _v?.dispose();
+    _cc?.dispose();
+    _vp?.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(widget.m.title, style: const TextStyle(fontSize: 14))),
-    body: _err
-        ? const Center(child: Text('تعذر التشغيل — جرّب التحديث أو التحميل أولاً',
-            style: TextStyle(color: Colors.grey)))
-        : _c == null
-            ? const Center(child: CircularProgressIndicator())
-            : Center(child: Chewie(controller: _c!)),
-  );
+        appBar: AppBar(title: Text(widget.title)),
+        body: _err
+            ? const Center(
+                child: Text('الملف غير موجود', style: TextStyle(color: Colors.grey)))
+            : _cc == null
+                ? const Center(child: CircularProgressIndicator())
+                : Center(child: Chewie(controller: _cc!)),
+      );
 }
 
+/* ======== شاهدتها ======== */
 class HistoryPage extends StatelessWidget {
   const HistoryPage({super.key});
   @override
-  Widget build(BuildContext context) {
-    final h = Store.history();
-    return Scaffold(
-      appBar: AppBar(title: const Text('شاهدتها')),
-      body: h.isEmpty
-          ? const Center(child: Text('لم تشاهد شيئًا بعد', style: TextStyle(color: Colors.grey)))
-          : ListView.builder(
-              itemCount: h.length,
-              itemBuilder: (_, i) => ListTile(
-                leading: ClipRRect(borderRadius: BorderRadius.circular(8),
-                    child: CachedNetworkImage(imageUrl: h[i].poster,
-                        width: 52, height: 74, fit: BoxFit.cover,
-                        errorWidget: (_, __, ___) => Container(width: 52,
-                            color: const Color(0xFF151B23),
-                            child: const Icon(Icons.movie, size: 22, color: Colors.grey)))),
-                title: Text(h[i].title, style: const TextStyle(fontSize: 13)),
-                trailing: const Icon(Icons.chevron_left, color: Colors.grey),
-                onTap: () => Navigator.push(context, MaterialPageRoute(
-                    builder: (_) => DetailScreen(m: h[i]))),
-              )),
-    );
-  }
+  Widget build(BuildContext context) => ValueListenableBuilder<int>(
+      valueListenable: Store.tick,
+      builder: (_, __, ___) {
+        final h = Store.history();
+        return Scaffold(
+            appBar: AppBar(title: const Text('شاهدتها')),
+            body: h.isEmpty
+                ? const Center(
+                    child: Text('لا يوجد سجل مشاهدة بعد',
+                        style: TextStyle(color: Colors.grey)))
+                : ListView.separated(
+                    itemCount: h.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (_, i) => ListTile(
+                        leading: const CircleAvatar(
+                            child: Icon(Icons.history, size: 20)),
+                        title: Text(h[i].title,
+                            style: const TextStyle(fontSize: 13)),
+                        subtitle: Text('@${h[i].channel}',
+                            style: const TextStyle(fontSize: 11)),
+                        onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) => PlayerScreen(m: h[i]))),
+                        trailing: IconButton(
+                            icon: const Icon(Icons.delete_outline,
+                                color: Colors.red, size: 20),
+                            onPressed: () =>
+                                Store.markWatchedRemove(h[i].id)))));
+      });
 }
 
+/* ======== تحميلاتي ======== */
 class DownloadsPage extends StatelessWidget {
   const DownloadsPage({super.key});
   @override
-  Widget build(BuildContext context) {
-    final d = Store.downloads().values.toList();
-    return Scaffold(
-      appBar: AppBar(title: const Text('تحميلاتي')),
-      body: d.isEmpty
-          ? const Center(child: Text('لا تحميلات بعد', style: TextStyle(color: Colors.grey)))
-          : ListView.builder(
-              itemCount: d.length,
-              itemBuilder: (_, i) {
-                final m = Movie.fromJson(Map<String, dynamic>.from(d[i]));
-                return ListTile(
-                  leading: ClipRRect(borderRadius: BorderRadius.circular(8),
-                      child: CachedNetworkImage(imageUrl: m.poster,
-                          width: 52, height: 74, fit: BoxFit.cover,
-                          errorWidget: (_, __, ___) => Container(width: 52,
-                              color: const Color(0xFF151B23),
-                              child: const Icon(Icons.movie, size: 22, color: Colors.grey)))),
-                  title: Text(m.title, style: const TextStyle(fontSize: 13)),
-                  subtitle: Text(m.size, style: const TextStyle(fontSize: 10)),
-                  trailing: IconButton(icon: const Icon(Icons.play_arrow, color: Colors.amber),
-                      onPressed: () => Navigator.push(context, MaterialPageRoute(
-                          builder: (_) => PlayerScreen(m: m, path: d[i]['path'])))),
-                  onTap: () => Navigator.push(context, MaterialPageRoute(
-                      builder: (_) => DetailScreen(m: m))),
-                );
-              }),
-    );
-  }
+  Widget build(BuildContext context) => ValueListenableBuilder<int>(
+      valueListenable: Store.tick,
+      builder: (_, __, ___) {
+        final items = Store.downloads().entries.toList();
+        return Scaffold(
+            appBar: AppBar(title: const Text('تحميلاتي')),
+            body: items.isEmpty
+                ? const Center(
+                    child: Text('لا توجد تحميلات',
+                        style: TextStyle(color: Colors.grey)))
+                : ListView.separated(
+                    itemCount: items.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (_, i) {
+                      final e = items[i];
+                      final m = Movie.fromJson(
+                          Map<String, dynamic>.from(e.value));
+                      final path = e.value['path']?.toString() ?? '';
+                      return ListTile(
+                          leading: const CircleAvatar(
+                              child: Icon(Icons.download_done, size: 20)),
+                          title: Text(m.title,
+                              style: const TextStyle(fontSize: 13)),
+                          subtitle: Text(m.size.isEmpty ? path : m.size,
+                              style: const TextStyle(fontSize: 10)),
+                          onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) => LocalPlayerScreen(
+                                      title: m.title, path: path))),
+                          trailing: IconButton(
+                              icon: const Icon(Icons.delete_outline,
+                                  color: Colors.red, size: 20),
+                              onPressed: () async {
+                                await Downloader.deleteFile(path);
+                                await Store.delDownload(e.key);
+                              }));
+                    }));
+      });
 }
 
+/* ======== القنوات ======== */
 class ChannelsPage extends StatefulWidget {
   const ChannelsPage({super.key});
   @override
@@ -338,173 +460,236 @@ class ChannelsPage extends StatefulWidget {
 }
 
 class _ChannelsPageState extends State<ChannelsPage> {
+  final _ctrl = TextEditingController();
+  final _focus = FocusNode();
   bool _busy = false;
 
-  void _snack(String s) => ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(s), behavior: SnackBarBehavior.floating));
-
-  Future _add(String input) async {
-    final u = Tg.cleanUser(input);
-    if (u.isEmpty) {
-      _snack('اكتب رابط القناة أو اسم المستخدم أولًا');
-      return;
-    }
+  Future _add() async {
+    final u = Tg.cleanUser(_ctrl.text);
+    if (u.isEmpty) return;
     setState(() => _busy = true);
-    _snack('جارٍ فحص القناة…');
     try {
-      final first = await Tg.fetchPage(u);
-      if (first.movies.isEmpty) {
-        if (mounted) _snack('لم يتم العثور على أفلام في هذه القناة');
-      } else {
-        await Store.addChannel(Channel(u, title: first.title, avatar: first.avatar));
-        await Store.saveMovies(u, first.movies);
+      final p = await Tg.fetchPage(u);
+      if (p.movies.isEmpty) {
         if (mounted) {
-          _snack('تمت إضافة «${first.title}» ✅ جارٍ تحميل كل الأفلام في الخلفية…');
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('لم يتم العثور على أفلام في هذه القناة')));
         }
-        Sync.loadAll(u);
+      } else {
+        await Store.addChannel(Channel(u, title: p.title, avatar: p.avatar));
+        await Store.saveMovies(u, p.movies);
+        Store.sync();
+        _ctrl.clear();
+        App.scope.value = u;
+        App.tab.value = 0;
       }
     } catch (_) {
-      if (mounted) _snack('تعذر العثور على القناة — تأكد أنها عامة ولها يوزر');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('تعذر الاتصال بالخادم — تأكد أن البوت يعمل')));
+      }
     }
     if (mounted) setState(() => _busy = false);
   }
 
-  void _openAddSheet() {
-    final ctrl = TextEditingController();
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: const Color(0xFF151B23),
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (_) => Padding(
-        padding: EdgeInsets.only(
-            left: 20, right: 20, top: 16,
-            bottom: MediaQuery.of(context).viewInsets.bottom + 20),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Container(width: 40, height: 4,
-              decoration: BoxDecoration(color: Colors.grey.shade700,
-                  borderRadius: BorderRadius.circular(2))),
-          const SizedBox(height: 20),
-          const Row(children: [
-            Icon(Icons.add_circle, color: Colors.amber, size: 28),
-            SizedBox(width: 8),
-            Text('إضافة قناة جديدة',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          ]),
-          const SizedBox(height: 8),
-          Text('تعمل القنوات العامة فقط (التي تظهر أفلامها لأي زائر)',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
-          const SizedBox(height: 16),
-          TextField(
-            controller: ctrl,
-            autofocus: true,
-            textDirection: TextDirection.ltr,
-            decoration: InputDecoration(
-              hintText: '@username  أو  t.me/username',
-              hintStyle: const TextStyle(fontSize: 13),
-              prefixIcon: const Icon(Icons.link, color: Colors.amber),
-              filled: true, fillColor: const Color(0xFF0B0F14),
-              border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide.none),
-            ),
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            height: 52,
-            child: FilledButton.icon(
-              onPressed: () {
-                final v = ctrl.text.trim();
-                Navigator.pop(context);
-                _add(v);
-              },
-              icon: const Icon(Icons.playlist_add_check),
-              label: const Text('إضافة القناة', style: TextStyle(fontSize: 16)),
-            ),
-          ),
-        ]),
-      ),
-    );
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<int>(
+      valueListenable: Store.tick,
+      builder: (_, __, ___) => Scaffold(
+            appBar: AppBar(title: const Text('القنوات')),
+            body: ListView(padding: const EdgeInsets.all(12), children: [
+              TextField(
+                  controller: _ctrl,
+                  focusNode: _focus,
+                  decoration: InputDecoration(
+                      hintText: 'الصق رابط القناة أو @اليوزر…',
+                      prefixIcon: const Icon(Icons.add_link),
+                      suffixIcon: _busy
+                          ? const Padding(
+                              padding: EdgeInsets.all(12),
+                              child: CircularProgressIndicator(strokeWidth: 2))
+                          : IconButton(
+                              icon: const Icon(Icons.add_circle,
+                                  color: Colors.amber),
+                              onPressed: _add),
+                      filled: true,
+                      fillColor: const Color(0xFF151B23),
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide.none))),
+              const SizedBox(height: 16),
+              if (Store.channels().isEmpty)
+                Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 50),
+                    child: Column(children: [
+                      const Icon(Icons.rss_feed,
+                          size: 90, color: Color(0xFFE5A83B)),
+                      const SizedBox(height: 24),
+                      const Text('لا توجد قنوات بعد',
+                          style: TextStyle(
+                              fontSize: 24, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 10),
+                      const Text(
+                          'أضف قناة أفلام من تيليجرام وستظهر جميع فيديوهاتها هنا بواجهة سينما',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.grey)),
+                      const SizedBox(height: 30),
+                      FilledButton.icon(
+                          onPressed: () => _focus.requestFocus(),
+                          icon: const Icon(Icons.add),
+                          label: const Text('إضافة قناة'),
+                          style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFFE5B13D),
+                              foregroundColor: Colors.black,
+                              minimumSize: const Size(260, 58),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(30)))),
+                    ])),
+              ListTile(
+                  dense: true,
+                  leading: const CircleAvatar(
+                      child: Icon(Icons.video_library, size: 20)),
+                  title: const Text('الكل — جميع القنوات',
+                      style: TextStyle(fontSize: 14)),
+                  trailing: App.scope.value == 'all'
+                      ? const Icon(Icons.check_circle,
+                          color: Colors.amber, size: 18)
+                      : null,
+                  onTap: () {
+                    App.scope.value = 'all';
+                    App.tab.value = 0;
+                  }),
+              const Divider(),
+              ...Store.channels().map((c) => ListTile(
+                    leading: CircleAvatar(
+                        backgroundImage:
+                            c.avatar != null ? NetworkImage(c.avatar!) : null,
+                        child: c.avatar == null
+                            ? const Icon(Icons.rss_feed, size: 18)
+                            : null),
+                    title: Text(c.title.isEmpty ? c.username : c.title,
+                        style: const TextStyle(fontSize: 14)),
+                    subtitle: Text(
+                        '@${c.username} • ${Store.moviesOf(c.username).length} فيلم',
+                        style: const TextStyle(fontSize: 11)),
+                    trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (App.scope.value == c.username)
+                            const Icon(Icons.check_circle,
+                                color: Colors.amber, size: 18),
+                          IconButton(
+                              icon: const Icon(Icons.delete_outline,
+                                  color: Colors.red, size: 20),
+                              onPressed: () => Store.delChannel(c.username)),
+                        ]),
+                    onTap: () {
+                      App.scope.value = c.username;
+                      App.tab.value = 0;
+                    },
+                  )),
+            ]),
+          ));
+}
+
+/* ======== الحساب ======== */
+class AccountMenu extends StatelessWidget {
+  const AccountMenu({super.key});
+  @override
+  Widget build(BuildContext context) {
+    final u = FirebaseAuth.instance.currentUser;
+    return IconButton(
+        icon: Icon(u != null ? Icons.manage_accounts : Icons.login_outlined),
+        onPressed: () {
+          if (u == null) {
+            Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const LoginScreen()));
+            return;
+          }
+          showModalBottomSheet(
+              context: context,
+              builder: (_) => SafeArea(
+                      child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                    ListTile(
+                        leading: CircleAvatar(
+                            child: Text(u.displayName?.isNotEmpty == true
+                                ? u.displayName![0]
+                                : 'ح')),
+                        title: Text(u.displayName ?? ''),
+                        subtitle: Text(u.email ?? '')),
+                    ListTile(
+                        leading: const Icon(Icons.logout, color: Colors.red),
+                        title: const Text('تسجيل الخروج'),
+                        onTap: () async {
+                          await FirebaseAuth.instance.signOut();
+                          await Store.setGuest(true);
+                          App.tick.value++;
+                          if (context.mounted) Navigator.pop(context);
+                        }),
+                  ])));
+        });
+  }
+}
+
+class LoginScreen extends StatelessWidget {
+  const LoginScreen({super.key});
+
+  Future _google(BuildContext context) async {
+    try {
+      final acc = await GoogleSignIn().signIn();
+      if (acc == null) return;
+      final a = await acc.authentication;
+      await FirebaseAuth.instance.signInWithCredential(
+          GoogleAuthProvider.credential(
+              idToken: a.idToken, accessToken: a.accessToken));
+      await Store.sync();
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('خطأ: $e')));
+      }
+    }
   }
 
   @override
-  Widget build(BuildContext context) {
-    final chs = Store.channels();
-    return Scaffold(
-      appBar: AppBar(title: const Text('القنوات')),
-      body: chs.isEmpty
-          ? Center(child: Padding(
-              padding: const EdgeInsets.all(32),
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                Icon(Icons.rss_feed, size: 80, color: Colors.amber.shade700),
-                const SizedBox(height: 16),
-                const Text('لا توجد قنوات بعد',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                Text('أضف قناة أفلام عامة من تليجرام وستظهر جميع فيديوهاتها هنا بواجهة سينما',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 13, color: Colors.grey.shade400)),
-                const SizedBox(height: 24),
-                SizedBox(
-                  width: double.infinity,
-                  height: 52,
-                  child: FilledButton.icon(
-                    onPressed: _busy ? null : _openAddSheet,
-                    icon: _busy
-                        ? const SizedBox(width: 20, height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Icon(Icons.add),
-                    label: const Text('إضافة قناة', style: TextStyle(fontSize: 16)),
-                  ),
-                ),
-              ]),
-            ))
-          : ListView(padding: const EdgeInsets.all(12), children: [
-              ...chs.map((c) => Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: Card(
-                      child: ListTile(
-                        leading: CircleAvatar(
-                            backgroundColor: const Color(0xFF0B0F14),
-                            backgroundImage:
-                                c.avatar != null ? NetworkImage(c.avatar!) : null,
-                            child: c.avatar == null
-                                ? const Icon(Icons.rss_feed, color: Colors.amber)
-                                : null),
-                        title: Text(c.title.isEmpty ? c.username : c.title,
-                            style: const TextStyle(
-                                fontSize: 15, fontWeight: FontWeight.bold)),
-                        subtitle: Text(
-                            '@${c.username} • ${Store.moviesOf(c.username).length} فيلم',
-                            style: const TextStyle(fontSize: 11)),
-                        trailing: IconButton(
-                            icon: const Icon(Icons.delete_outline, color: Colors.red),
-                            onPressed: () async {
-                              await Store.delChannel(c.username);
-                              setState(() {});
-                            }),
-                        onTap: () {
-                          App.scope.value = c.username;
-                          App.tab.value = 0;
-                        },
-                      ),
-                    ),
-                  )),
-            ]),
-      floatingActionButton: chs.isEmpty
-          ? null
-          : FloatingActionButton.extended(
-              onPressed: _busy ? null : _openAddSheet,
-              backgroundColor: Colors.amber,
-              foregroundColor: Colors.black,
-              icon: _busy
-                  ? const SizedBox(width: 18, height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.add),
-              label: const Text('إضافة قناة'),
-            ),
-    );
-  }
+  Widget build(BuildContext context) => Scaffold(
+      body: Center(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Container(
+            padding: const EdgeInsets.all(22),
+            decoration: BoxDecoration(
+                color: const Color(0xFF151B23),
+                borderRadius: BorderRadius.circular(28)),
+            child:
+                const Icon(Icons.movie_filter, size: 70, color: Colors.amber)),
+        const SizedBox(height: 18),
+        const Text('تلي سينما',
+            style: TextStyle(
+                fontSize: 30,
+                fontWeight: FontWeight.bold,
+                color: Colors.amber)),
+        const SizedBox(height: 6),
+        Text('أفلام قنواتك… بواجهة تليق بها',
+            style: TextStyle(color: Colors.grey.shade400, fontSize: 13)),
+        const SizedBox(height: 40),
+        Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 40),
+            child: FilledButton.icon(
+                onPressed: () => _google(context),
+                icon: const Icon(Icons.g_mobiledata, size: 28),
+                label: const Text('تسجيل الدخول عبر Google'),
+                style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(52),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14))))),
+        const SizedBox(height: 8),
+        TextButton(
+            onPressed: () async {
+              await Store.setGuest(true);
+              App.tick.value++;
+            },
+            child: const Text('المتابعة كضيف')),
+      ])));
 }
