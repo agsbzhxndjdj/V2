@@ -1,9 +1,6 @@
-import os
-import asyncio
-import threading
-import logging
+import os, io, asyncio, threading, logging, shutil, queue
 from functools import wraps
-from flask import Flask, jsonify, request, send_file
+from flask import Flask, jsonify, request, send_file, Response
 from flask_cors import CORS
 from telethon import TelegramClient
 from telethon.tl.types import DocumentAttributeVideo
@@ -12,20 +9,20 @@ from dotenv import load_dotenv
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
 
-app = Flask(__name__)
-CORS(app)
-
 API_ID = int(os.getenv('API_ID'))
 API_HASH = os.getenv('API_HASH')
-PHONE = os.getenv('PHONE')
 API_KEY = os.getenv('API_KEY')
 
 client = TelegramClient('tg_session', API_ID, API_HASH)
-
-# حلقة asyncio واحدة دائمة لـ Telethon (تجنب انهيارات event loops المتعددة)
 loop = asyncio.new_event_loop()
 
-def run_async(coro, timeout=180):
+CACHE = '/tmp/tc_cache'
+os.makedirs(CACHE, exist_ok=True)
+
+app = Flask(__name__)
+CORS(app)
+
+def run_async(coro, timeout=600):
     return asyncio.run_coroutine_threadsafe(coro, loop).result(timeout=timeout)
 
 def require_api_key(f):
@@ -37,89 +34,166 @@ def require_api_key(f):
         return f(*args, **kwargs)
     return decorated
 
-def extract_video_info(message):
-    result = {
-        'msg_id': message.id,
-        'date': int(message.date.timestamp()) if message.date else 0,
-        'text': message.text or '',
-        'has_video': False,
-        'duration': '',
-        'size': ''
-    }
-    if message.video or (message.document and message.document.mime_type
-            and message.document.mime_type.startswith('video')):
-        result['has_video'] = True
-        if message.document:
-            for attr in message.document.attributes:
-                if isinstance(attr, DocumentAttributeVideo):
-                    s = int(attr.duration)
-                    result['duration'] = f"{s//3600}:{(s%3600)//60:02d}:{s%60:02d}"
-            size = message.document.size
-            if size:
-                result['size'] = (f"{size/1073741824:.1f} GB"
-                                  if size > 1073741824
-                                  else f"{size/1048576:.1f} MB")
-    return result
+def is_video(m):
+    return m.video or (m.document and m.document.mime_type
+                       and m.document.mime_type.startswith('video'))
+
+def extract(m):
+    r = {'msg_id': m.id, 'date': int(m.date.timestamp()) if m.date else 0,
+         'text': m.message or '', 'has_video': False, 'duration': '', 'size': ''}
+    if is_video(m):
+        r['has_video'] = True
+        if m.document:
+            for a in m.document.attributes:
+                if isinstance(a, DocumentAttributeVideo):
+                    s = int(a.duration)
+                    r['duration'] = f"{s//3600}:{(s%3600)//60:02d}:{s%60:02d}"
+            if m.document.size:
+                r['size'] = (f"{m.document.size/1073741824:.1f} GB"
+                             if m.document.size > 1073741824
+                             else f"{m.document.size/1048576:.1f} MB")
+    return r
 
 @app.route('/')
 def home():
-    return jsonify({'status': 'ok', 'service': 'Tele Cinema Bot'})
-
-@app.route('/health')
-def health():
-    return jsonify({'connected': client.is_connected(),
-                    'authorized': run_async(client.is_user_authorized())})
+    return jsonify({'status': 'ok'})
 
 @app.route('/channel/<username>')
 @require_api_key
 def get_channel(username):
-    username = username.replace('@', '')
-    limit = int(request.args.get('limit', 200))
+    u = username.replace('@', '')
     try:
-        async def fetch():
-            entity = await client.get_entity(username)
-            messages = await client.get_messages(entity, limit=limit)
-            return entity, messages
-        entity, messages = run_async(fetch())
-        results = [extract_video_info(m) for m in messages
-                   if m.video or (m.document and m.document.mime_type
-                                  and m.document.mime_type.startswith('video'))]
-        return jsonify({
-            'title': getattr(entity, 'title', username),
-            'username': username,
-            'messages': results
-        })
-    except Exception as e:
-        logging.error(f"Error: {e}")
-        return jsonify({'error': str(e), 'messages': []})
+        async def f():
+            e = await client.get_entity(u)
+            msgs = await client.get_messages(e, limit=200)
+            return e, msgs
+        e, msgs = run_async(f())
+        msgs_sorted = sorted([m for m in msgs if m], key=lambda m: m.id)
+        results = []
+        for i, m in enumerate(msgs_sorted):
+            if not is_video(m):
+                continue
+            context = ''
+            for j in range(i - 1, max(-1, i - 6), -1):
+                p = msgs_sorted[j]
+                if is_video(p):
+                    break
+                t = p.message or ''
+                if t and len(t) > 10:
+                    context = t
+                    break
+            if not context:
+                for j in range(i + 1, min(len(msgs_sorted), i + 4)):
+                    n = msgs_sorted[j]
+                    if is_video(n):
+                        break
+                    t = n.message or ''
+                    if t and len(t) > 10:
+                        context = t
+                        break
+            r = extract(m)
+            r['text'] = context or r['text']
+            results.append(r)
+        results.reverse()
+        return jsonify({'title': getattr(e, 'title', u),
+                        'username': u, 'messages': results})
+    except Exception as ex:
+        logging.error(f"Error: {ex}")
+        return jsonify({'error': str(ex), 'messages': []})
 
-@app.route('/stream/<username>/<int:msg_id>')
+@app.route('/poster/<username>/<int:mid>')
 @require_api_key
-def stream_video(username, msg_id):
-    username = username.replace('@', '')
-    path = f"/tmp/stream_{username}_{msg_id}.mp4"
-    if not os.path.exists(path):
-        async def fetch():
-            entity = await client.get_entity(username)
-            msg = await client.get_messages(entity, ids=msg_id)
-            if msg and (msg.video or msg.document):
-                await client.download_media(msg, path)
-                return True
-            return False
-        try:
-            if not run_async(fetch(), timeout=600):
-                return 'Not found', 404
-        except Exception as e:
-            return str(e), 500
-    # conditional=True => يدعم Range requests => التقديم/الترجيع يشتغل في المشغل
-    return send_file(path, mimetype='video/mp4', conditional=True)
+def poster(username, mid):
+    u = username.replace('@', '')
+    async def f():
+        e = await client.get_entity(u)
+        m = await client.get_messages(e, ids=mid)
+        if not m or not is_video(m):
+            return None
+        thumbs = [t for t in (getattr(m.document, 'thumbs', None) or [])
+                  if getattr(t, 'type', '') != 'i']
+        if not thumbs:
+            return None
+        best = max(thumbs, key=lambda t: getattr(t, 'w', 0) * getattr(t, 'h', 0))
+        buf = io.BytesIO()
+        await client.download_media(m, file=buf, thumb=best.type)
+        return buf.getvalue()
+    try:
+        data = run_async(f(), timeout=60)
+    except Exception:
+        data = None
+    if not data:
+        return ('', 404)
+    return Response(data, mimetype='image/jpeg')
 
-def start_loop():
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(client.start(phone=PHONE))
-    print("✅ Telegram client started!")
-    loop.run_forever()
+@app.route('/stream/<username>/<int:mid>')
+@require_api_key
+def stream(username, mid):
+    u = username.replace('@', '')
+    path = f"{CACHE}/{u}_{mid}.mp4"
+    done = path + '.done'
+    # ملف مكتمل سابقاً => تقديم/ترجيع فوري
+    if os.path.exists(done):
+        return send_file(path, mimetype='video/mp4', conditional=True)
+    if os.path.exists(path):
+        os.remove(path)
+    async def getmsg():
+        e = await client.get_entity(u)
+        return await client.get_messages(e, ids=mid)
+    try:
+        m = run_async(getmsg(), timeout=60)
+    except Exception as ex:
+        return str(ex), 500
+    if not m or not is_video(m):
+        return 'Not found', 404
+
+    size = m.document.size if m.document else 0
+    free = shutil.disk_usage(CACHE).free
+    cache = bool(size) and free > size + 300 * 1024 * 1024
+
+    def gen():
+        fout = open(path, 'wb') if cache else None
+        qq = queue.Queue(maxsize=40)
+        state = {'ok': False}
+        async def pump():
+            try:
+                async for chunk in client.iter_download(m, chunk_size=512 * 1024):
+                    qq.put(chunk)
+                state['ok'] = True
+            except Exception as ex:
+                logging.error(f"pump: {ex}")
+            qq.put(None)
+        asyncio.run_coroutine_threadsafe(pump(), loop)
+        try:
+            while True:
+                chunk = qq.get(timeout=120)
+                if chunk is None:
+                    break
+                if fout:
+                    fout.write(chunk)
+                yield chunk
+            if fout and state['ok']:
+                open(done, 'w').write('1')
+        finally:
+            if fout:
+                fout.close()
+    return Response(gen(), mimetype='video/mp4')
+
+async def telethon_main():
+    await client.connect()
+    if not await client.is_user_authorized():
+        print("Session invalid!")
+        return
+    me = await client.get_me()
+    print(f"Telegram connected as: {getattr(me, 'first_name', 'User')}")
+    print("Server ready!")
+    while True:
+        await asyncio.sleep(60)
+
+def run_flask():
+    app.run(host='0.0.0.0', port=5000, use_reloader=False, threaded=True)
 
 if __name__ == '__main__':
-    threading.Thread(target=start_loop, daemon=True).start()
-    app.run(host='0.0.0.0', port=5000)
+    threading.Thread(target=run_flask, daemon=True).start()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(telethon_main())
