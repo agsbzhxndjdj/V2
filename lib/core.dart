@@ -81,7 +81,16 @@ class Page {
 class Tg {
   static final Dio _dio = Dio(BaseOptions(headers: {
     'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36'
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    'Accept':
+        'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
+    'Cache-Control': 'max-age=0',
+    'Upgrade-Insecure-Requests': '1',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'none',
+    'Sec-Fetch-User': '?1',
   }, receiveTimeout: const Duration(seconds: 25)));
 
   static String cleanUser(String input) {
@@ -114,7 +123,13 @@ class Tg {
     for (final part in html.split('data-post="').skip(1)) {
       final head = RegExp(r'^([^/"]+)/(\d+)').firstMatch(part);
       if (head == null) continue;
-      final video = RegExp(r'<video[^>]*src="([^"]+)"').firstMatch(part)?.group(1);
+      var video = RegExp(r'<video[^>]*src="([^"]+)"').firstMatch(part)?.group(1);
+      if (video == null || video.isEmpty) {
+        video = RegExp(r'<source[^>]*src="([^"]+)"').firstMatch(part)?.group(1);
+      }
+      if (video == null || video.isEmpty) {
+        video = RegExp(r'''https?://[^"'<>\s]+\.mp4[^"'<>\s]*''').firstMatch(part)?.group(0);
+      }
       if (video == null || video.isEmpty) continue;
       var poster =
           RegExp(r"background-image:url\('([^']+)'").firstMatch(part)?.group(1) ?? '';
