@@ -311,12 +311,32 @@ class _ChannelsPageState extends State<ChannelsPage> {
     _snack('جارٍ فحص القناة وجلب أفلامها…');
     try {
       final p = await Tg.fetchPage(u);
-      await Store.addChannel(Channel(u, title: p.title, avatar: p.avatar));
-      await Store.saveMovies(u, p.movies);
-      if (mounted) {
-        _snack(p.movies.isEmpty
-            ? 'تمت الإضافة ✅ لكن لا توجد فيديوهات في القناة بعد'
-            : 'تمت إضافة «${p.title}» بنجاح ✅');
+      if (p.movies.isEmpty) {
+        if (mounted) {
+          final dbg = await Tg.raw(u);
+          showDialog(
+              context: context,
+              builder: (_) => AlertDialog(
+                    title: const Text('تشخيص القناة'),
+                    content: SizedBox(
+                        width: double.maxFinite,
+                        height: 300,
+                        child: SingleChildScrollView(
+                            child: SelectableText(dbg.isEmpty
+                                ? 'EMPTY'
+                                : dbg.substring(
+                                    0, dbg.length > 900 ? 900 : dbg.length)))),
+                    actions: [
+                      TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('إغلاق')),
+                    ],
+                  ));
+        }
+      } else {
+        await Store.addChannel(Channel(u, title: p.title, avatar: p.avatar));
+        await Store.saveMovies(u, p.movies);
+        if (mounted) _snack('تمت إضافة «${p.title}» بنجاح ✅');
       }
     } catch (_) {
       if (mounted) _snack('تعذر العثور على القناة — تأكد أنها عامة ولها يوزر');
