@@ -6,7 +6,6 @@ import 'package:path_provider/path_provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-/* ======== تنقّل مشترك ======== */
 class App {
   static final ValueNotifier<String> scope = ValueNotifier('all');
   static final ValueNotifier<int> tab = ValueNotifier(0);
@@ -14,7 +13,6 @@ class App {
   static final ValueNotifier<String> query = ValueNotifier('');
 }
 
-/* ======== النماذج ======== */
 class Channel {
   final String username;
   String title;
@@ -54,7 +52,6 @@ class Movie {
       size: m['size'] ?? '', duration: m['duration'] ?? '', date: m['date'] ?? 0);
 }
 
-/* ======== البحث الذكي ======== */
 class Search {
   static String norm(String s) => s.toLowerCase()
       .replaceAll(RegExp(r'[\u064B-\u0652\u0640]'), '')
@@ -69,7 +66,6 @@ class Search {
   }
 }
 
-/* ======== قارئ القنوات العامة ======== */
 class Page {
   final List<Movie> movies;
   final int? before;
@@ -79,19 +75,32 @@ class Page {
 }
 
 class Tg {
-  static final Dio _dio = Dio(BaseOptions(headers: {
-    'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-    'Accept':
-        'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-    'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
-    'Cache-Control': 'max-age=0',
-    'Upgrade-Insecure-Requests': '1',
-    'Sec-Fetch-Dest': 'document',
-    'Sec-Fetch-Mode': 'navigate',
-    'Sec-Fetch-Site': 'none',
-    'Sec-Fetch-User': '?1',
-  }, receiveTimeout: const Duration(seconds: 25)));
+  static Future<String> _fetchHtml(String url) async {
+    const uas = [
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+      'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+      'Mozilla/5.0 (compatible; Bingbot/2.0; +http://www.bing.com/bingbot.htm)',
+      'TelegramBot (like TwitterBot)',
+    ];
+    String last = '';
+    for (final ua in uas) {
+      try {
+        final r = await Dio(BaseOptions(headers: {
+          'User-Agent': ua,
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
+        }, receiveTimeout: const Duration(seconds: 20)))
+            .get(url);
+        last = r.data.toString();
+        if (last.contains('data-post="') || last.contains('tgme_widget_message')) {
+          return last;
+        }
+      } catch (_) {}
+    }
+    return last;
+  }
+
+  static Future<String> raw(String user) => _fetchHtml('https://t.me/s/$user');
 
   static String cleanUser(String input) {
     var s = input.trim()
@@ -109,10 +118,8 @@ class Tg {
   static String _strip(String s) => _un(s).replaceAll(RegExp(r'<[^>]+>'), '');
 
   static Future<Page> fetchPage(String user, {int? before}) async {
-    final html = (await _dio
-            .get('https://t.me/s/$user${before != null ? '?before=$before' : ''}'))
-        .data
-        .toString();
+    final html = await _fetchHtml(
+        'https://t.me/s/$user${before != null ? '?before=$before' : ''}');
     final title = RegExp(r'<meta property="og:title" content="([^"]*)"')
         .firstMatch(html)?.group(1);
     final avatar = RegExp(r'<meta property="og:image" content="([^"]*)"')
@@ -125,10 +132,14 @@ class Tg {
       if (head == null) continue;
       var video = RegExp(r'<video[^>]*src="([^"]+)"').firstMatch(part)?.group(1);
       if (video == null || video.isEmpty) {
+        video = RegExp(r"<video[^>]*src='([^']+)'").firstMatch(part)?.group(1);
+      }
+      if (video == null || video.isEmpty) {
         video = RegExp(r'<source[^>]*src="([^"]+)"').firstMatch(part)?.group(1);
       }
       if (video == null || video.isEmpty) {
-        video = RegExp(r'''https?://[^"'<>\s]+\.mp4[^"'<>\s]*''').firstMatch(part)?.group(0);
+        video = RegExp(r'''https?://[^"'<>\s]+\.mp4[^"'<>\s]*''')
+            .firstMatch(part)?.group(0);
       }
       if (video == null || video.isEmpty) continue;
       var poster =
@@ -137,8 +148,7 @@ class Tg {
       var duration = RegExp(r'duration="([^"]+)"').firstMatch(part)?.group(1) ?? '';
       if (duration.isEmpty) {
         duration = RegExp(r'video_duration[^>]*>([^<]+)<')
-                .firstMatch(part)?.group(1)?.trim() ??
-            '';
+                .firstMatch(part)?.group(1)?.trim() ?? '';
       }
       final size =
           RegExp(r'video_size[^>]*>([^<]+)<').firstMatch(part)?.group(1)?.trim() ?? '';
@@ -183,7 +193,6 @@ class Tg {
   }
 }
 
-/* ======== التخزين + المزامنة ======== */
 class Store {
   static late Box _ch, _mv, _st;
   static final ValueNotifier<int> tick = ValueNotifier(0);
@@ -277,7 +286,6 @@ class Store {
   }
 }
 
-/* ======== التحميلات ======== */
 class Downloader {
   static final Dio _dio = Dio();
   static final Map<String, CancelToken> _tasks = {};
