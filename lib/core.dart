@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:hive/hive.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -76,11 +78,85 @@ class Page {
 }
 
 class Tg {
-  static final Dio _dio = Dio(BaseOptions(
-      receiveTimeout: const Duration(seconds: 15),
-      connectTimeout: const Duration(seconds: 10),
-      followRedirects: true,
-      validateStatus: (s) => s != null && s < 500));
+  static final Dio _dio = Dio(BaseOptions(headers: {
+    'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    'Accept':
+        'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
+  }, receiveTimeout: const Duration(seconds: 20), followRedirects: true));
+
+  static String _jsStr(dynamic r) {
+    var s = r.toString();
+    if (s.startsWith('"') && s.endsWith('"')) {
+      try {
+        s = jsonDecode(s) as String;
+      } catch (_) {
+        s = s
+            .substring(1, s.length - 1)
+            .replaceAll(r'\"', '"')
+            .replaceAll(r'\/', '/')
+            .replaceAll(r'\n', '\n');
+      }
+    }
+    return s;
+  }
+
+  static Future<String> _webviewHtml(String url) async {
+    String result = '';
+    var clicked = false;
+    final completer = Completer<void>();
+    final headless = HeadlessInAppWebView(
+      initialUrlRequest: URLRequest(url: WebUri(url)),
+      initialOptions: InAppWebViewOptions(
+        javaScriptEnabled: true,
+        userAgent:
+            'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36',
+      ),
+      onLoadStop: (controller, uri) async {
+        try {
+          await Future.delayed(const Duration(milliseconds: 1500));
+          var html = _jsStr(await controller.evaluateJavascript(
+              source: 'JSON.stringify(document.documentElement.outerHTML)'));
+          if (!clicked &&
+              !html.contains('data-post="') &&
+              (html.contains('Preview channel') ||
+                  html.contains('tgme_action_button'))) {
+            clicked = true;
+            await controller.evaluateJavascript(source:
+                "var b=[...document.querySelectorAll('a')].find(a=>/preview/i.test(a.textContent||''))||document.querySelector('a.tgme_action_button_new');if(b)b.click();");
+            await Future.delayed(const Duration(milliseconds: 3000));
+            html = _jsStr(await controller.evaluateJavascript(
+                source: 'JSON.stringify(document.documentElement.outerHTML)'));
+          }
+          result = html;
+        } catch (_) {}
+        if (!completer.isCompleted) completer.complete();
+      },
+    );
+    await headless.run();
+    try {
+      await completer.future.timeout(const Duration(seconds: 25));
+    } catch (_) {}
+    try {
+      await headless.dispose();
+    } catch (_) {}
+    return result;
+  }
+
+  static Future<String> _fetchHtml(String url) async {
+    try {
+      final s = (await _dio.get(url)).data.toString();
+      if (s.contains('data-post="')) return s;
+    } catch (_) {}
+    try {
+      final w = await _webviewHtml(url);
+      if (w.isNotEmpty) return w;
+    } catch (_) {}
+    return '';
+  }
+
+  static Future<String> raw(String user) => _fetchHtml('https://t.me/s/$user');
 
   static String cleanUser(String input) {
     var s = input.trim()
@@ -97,88 +173,51 @@ class Tg {
 
   static String _strip(String s) => _un(s).replaceAll(RegExp(r'<[^>]+>'), '');
 
-  static Future<String?> _fetchEmbed(String user, int msgId) async {
-    try {
-      final r = await _dio.get('https://t.me/$user/$msgId?embed=1&mode=tme',
-          options: Options(headers: {'User-Agent': 'Mozilla/5.0', 'Accept': '*/*'}));
-      if (r.statusCode == 200) {
-        final data = r.data.toString();
-        if (data.contains('tgme_widget_message') || data.contains('tgme_widget')) {
-          return data;
-        }
-      }
-    } catch (_) {}
-    return null;
-  }
-
-  static Future<int?> _findLatestMsgId(String user) async {
-    int low = 1;
-    int high = 1000000;
-    int? lastValid;
-    while (low <= high) {
-      final mid = low + ((high - low) ~/ 2);
-      final exists = await _fetchEmbed(user, mid) != null;
-      if (exists) {
-        lastValid = mid;
-        low = mid + 1;
-      } else {
-        high = mid - 1;
-      }
-      if (high - low < 10) break;
-    }
-    return lastValid;
-  }
-
-  static Future<({String title, String? avatar})> _getChannelInfo(String user) async {
-    try {
-      final r = await Dio(BaseOptions(
-              receiveTimeout: const Duration(seconds: 10), followRedirects: true))
-          .get('https://t.me/$user',
-              options: Options(headers: {
-                'User-Agent':
-                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Accept': 'text/html',
-              }));
-      final html = r.data.toString();
-      final title = RegExp(r'<meta property="og:title" content="([^"]*)"')
-              .firstMatch(html)?.group(1) ??
-          user;
-      final avatar = RegExp(r'<meta property="og:image" content="([^"]*)"')
-          .firstMatch(html)?.group(1);
-      return (title: _un(title), avatar: avatar);
-    } catch (_) {
-      return (title: user, avatar: null);
-    }
-  }
-
   static Future<Page> fetchPage(String user, {int? before}) async {
-    final info = await _getChannelInfo(user);
-    int? startId = before;
-    if (startId == null) {
-      startId = await _findLatestMsgId(user);
-      if (startId == null) return Page([], null, info.title, info.avatar);
-    }
-    final results = <int, String>{};
-    final tasks = <Future>[];
-    for (var i = 0; i < 30; i++) {
-      final id = startId - i;
-      if (id < 1) break;
-      tasks.add(() async {
-        final html = await _fetchEmbed(user, id);
-        if (html != null) results[id] = html;
-      }());
-    }
-    await Future.wait(tasks);
+    final html = await _fetchHtml(
+        'https://t.me/s/$user${before != null ? '?before=$before' : ''}');
+    final title = RegExp(r'<meta property="og:title" content="([^"]*)"')
+        .firstMatch(html)?.group(1);
+    final avatar = RegExp(r'<meta property="og:image" content="([^"]*)"')
+        .firstMatch(html)?.group(1);
+    final next = RegExp(r'before=(\d+)').firstMatch(html)?.group(1);
+
     final movies = <Movie>[];
-    for (final id in results.keys.toList()..sort((a, b) => b.compareTo(a))) {
-      final movie = _parseEmbed(user, id, results[id]!);
-      if (movie != null) movies.add(movie);
+    for (final part in html.split('data-post="').skip(1)) {
+      final head = RegExp(r'^([^/"]+)/(\d+)').firstMatch(part);
+      if (head == null) continue;
+      var video = RegExp(r'<video[^>]*src="([^"]+)"').firstMatch(part)?.group(1);
+      if (video == null || video.isEmpty) {
+        video = RegExp(r"<video[^>]*src='([^']+)'").firstMatch(part)?.group(1);
+      }
+      if (video == null || video.isEmpty) {
+        video = RegExp(r'<source[^>]*src="([^"]+)"').firstMatch(part)?.group(1);
+      }
+      if (video == null || video.isEmpty) {
+        video = RegExp(r'''https?://[^"'<>\s]+\.mp4[^"'<>\s]*''')
+            .firstMatch(part)?.group(0);
+      }
+      if (video == null || video.isEmpty) continue;
+      var poster =
+          RegExp(r"background-image:url\('([^']+)'").firstMatch(part)?.group(1) ?? '';
+      if (poster.startsWith('//')) poster = 'https:$poster';
+      var duration = RegExp(r'duration="([^"]+)"').firstMatch(part)?.group(1) ?? '';
+      if (duration.isEmpty) {
+        duration = RegExp(r'video_duration[^>]*>([^<]+)<')
+                .firstMatch(part)?.group(1)?.trim() ?? '';
+      }
+      final size =
+          RegExp(r'video_size[^>]*>([^<]+)<').firstMatch(part)?.group(1)?.trim() ?? '';
+      final cap = RegExp(r'message_text[^>]*>([\s\S]*?)</div>').firstMatch(part);
+      final dt = RegExp(r'datetime="([^"]+)"').firstMatch(part)?.group(1);
+      movies.add(_build(head.group(1)!, int.parse(head.group(2)!), poster, video,
+          cap == null ? '' : _strip(cap.group(1)!),
+          DateTime.tryParse(dt ?? '')?.millisecondsSinceEpoch ?? 0, duration, size));
     }
-    final nextBefore = movies.isEmpty ? null : (movies.last.msgId - 1);
-    return Page(movies, nextBefore, info.title, info.avatar);
+    return Page(movies, next == null ? null : int.parse(next),
+        title == null ? user : _un(title), avatar);
   }
 
-  /// يجلب كل الأفلام الأحدث من afterMsgId (0 = كل شيء)
   static Future<List<Movie>> fetchNew(String user, {required int afterMsgId}) async {
     final out = <Movie>[];
     int? before;
@@ -198,41 +237,6 @@ class Tg {
       if (out.length > 5000) break;
     }
     return out;
-  }
-
-  static Movie? _parseEmbed(String channel, int msgId, String html) {
-    var video = RegExp(r'data-video="([^"]+)"').firstMatch(html)?.group(1) ??
-        RegExp(r'<video[^>]*src="([^"]+)"').firstMatch(html)?.group(1) ??
-        RegExp(r'<source[^>]*src="([^"]+)"').firstMatch(html)?.group(1) ??
-        RegExp(r'''href="([^"]+\.mp4[^"]*)"''').firstMatch(html)?.group(1);
-    if (video == null || video.isEmpty) {
-      video = RegExp(r'''https?://[^"'<>\s]+\.mp4[^"'<>\s]*''').firstMatch(html)?.group(0);
-    }
-    if (video == null || video.isEmpty) return null;
-    if (video.startsWith('//')) video = 'https:$video';
-
-    var poster = RegExp(r'''data-poster="([^"]+)"''').firstMatch(html)?.group(1) ??
-        RegExp(r'''background-image:\s*url\(['"]?([^'")\s]+)['"]?\)''',
-                caseSensitive: false)
-            .firstMatch(html)?.group(1) ??
-        RegExp(r'''<img[^>]*src="([^"]+)"''').firstMatch(html)?.group(1) ??
-        '';
-    if (poster.startsWith('//')) poster = 'https:$poster';
-
-    var duration = RegExp(r'data-duration="([^"]+)"').firstMatch(html)?.group(1) ??
-        RegExp(r'duration[^>]*>([^<]+)<').firstMatch(html)?.group(1)?.trim() ?? '';
-    var size = RegExp(r'video_size[^>]*>([^<]+)<').firstMatch(html)?.group(1)?.trim() ?? '';
-
-    final capMatch = RegExp(
-            r'<div[^>]*class="[^"]*tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)</div>',
-            caseSensitive: false)
-        .firstMatch(html);
-    final caption = capMatch != null ? _strip(capMatch.group(1) ?? '') : '';
-
-    final dt = RegExp(r'<time[^>]*datetime="([^"]+)"').firstMatch(html)?.group(1);
-    final date = DateTime.tryParse(dt ?? '')?.millisecondsSinceEpoch ?? 0;
-
-    return _build(channel, msgId, poster, video, caption, date, duration, size);
   }
 
   static Movie _build(String ch, int mid, String poster, String video,
@@ -266,7 +270,6 @@ class Tg {
   }
 }
 
-/* ======== المزامنة التلقائية ======== */
 class Sync {
   static bool _busy = false;
   static Timer? _timer;
@@ -283,7 +286,8 @@ class Sync {
     for (final c in Store.channels()) {
       status.value = 'التحقق من الجديد: ${c.title}';
       try {
-        final fresh = await Tg.fetchNew(c.username, afterMsgId: Store.maxId(c.username));
+        final fresh =
+            await Tg.fetchNew(c.username, afterMsgId: Store.maxId(c.username));
         if (fresh.isNotEmpty) await Store.saveMovies(c.username, fresh);
       } catch (_) {}
     }
@@ -327,6 +331,7 @@ class Store {
     await _ch.put(c.username, c.toJson());
     tick.value++;
   }
+
   static Future delChannel(String u) async {
     await _ch.delete(u);
     await _mv.delete(u);
@@ -365,6 +370,7 @@ class Store {
     await _st.put('history', h.map((e) => e.toJson()).toList());
     tick.value++;
   }
+
   static Future markWatchedRemove(String id) async {
     final h = history()..removeWhere((e) => e.id == id);
     await _st.put('history', h.map((e) => e.toJson()).toList());
@@ -379,6 +385,7 @@ class Store {
     await _st.put('downloads', d);
     tick.value++;
   }
+
   static Future delDownload(String id) async {
     final d = downloads();
     d.remove(id);
