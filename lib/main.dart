@@ -2,15 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'firebase_options.dart';
 import 'core.dart';
 import 'ui.dart';
+import 'firebase_options.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Hive.initFlutter();
   await Store.init();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await Firebase.initializeApp(options: Fb.options);
   runApp(const TeleCinema());
 }
 
@@ -35,7 +35,8 @@ class TeleCinema extends StatelessWidget {
                 stream: FirebaseAuth.instance.authStateChanges(),
                 builder: (ctx, snap) {
                   if (snap.connectionState == ConnectionState.waiting) {
-                    return const Scaffold(body: Center(child: CircularProgressIndicator()));
+                    return const Scaffold(
+                        body: Center(child: CircularProgressIndicator()));
                   }
                   if (snap.data != null) {
                     Store.sync();
