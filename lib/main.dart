@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'core.dart';
 import 'ui.dart';
@@ -27,6 +26,8 @@ class TeleCinema extends StatelessWidget {
           scaffoldBackgroundColor: const Color(0xFF0B0F14),
           cardColor: const Color(0xFF151B23),
           colorScheme: const ColorScheme.dark(
-              home: const HomeShell(),
+              primary: Color(0xFFE5B13D), secondary: Color(0xFFE50914)),
+        ),
+        home: const HomeShell(),
       );
 }
