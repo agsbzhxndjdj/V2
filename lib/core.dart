@@ -1,10 +1,10 @@
-import 'dart:convert';
 import 'dart:io';
 import 'package:dio/dio.dart';
+import 'package:dio_cookie_manager/dio_cookie_manager.dart';
+import 'package:cookie_jar/cookie_jar.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:webview_flutter/webview_flutter.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -77,81 +77,58 @@ class Page {
 }
 
 class Tg {
-  static String _jsStr(dynamic r) {
-    var s = r.toString();
-    if (s.startsWith('"') && s.endsWith('"')) {
-      try {
-        s = jsonDecode(s) as String;
-      } catch (_) {
-        s = s
-            .substring(1, s.length - 1)
-            .replaceAll(r'\"', '"')
-            .replaceAll(r'\/', '/')
-            .replaceAll(r'\n', '\n');
-      }
+  static final CookieJar _jar = CookieJar();
+  static Dio _dio() => Dio(BaseOptions(headers: {
+        'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Upgrade-Insecure-Requests': '1',
+        'Cache-Control': 'max-age=0',
+      }, receiveTimeout: const Duration(seconds: 25), followRedirects: true))
+    ..interceptors.add(CookieManager(_jar));
+
+  static Future<String> _tryUrl(String url) async {
+    try {
+      final r = await _dio().get(url);
+      return r.data.toString();
+    } catch (_) {
+      return '';
     }
-    return s;
   }
 
-  static Future<String> _webviewHtml(String url) async {
-    final controller = WebViewController();
-    await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
-    await controller.setUserAgent(
-        'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36');
-    await controller.loadRequest(Uri.parse(url));
-    String html = '';
-    for (var i = 0; i < 40; i++) {
-      await Future.delayed(const Duration(milliseconds: 500));
-      try {
-        final st = _jsStr(
-            await controller.runJavaScriptReturningResult('document.readyState'));
-        if (st == 'complete') {
-          html = _jsStr(await controller
-              .runJavaScriptReturningResult('document.documentElement.outerHTML'));
-          break;
-        }
-      } catch (_) {}
-    }
+  static Future<String> _fetchHtml(String user, {int? before}) async {
+    final q = before != null ? '?before=$before' : '';
+    // 1) حاول نسخة embed أولاً (الأكثر تسامحًا)
+    var html = await _tryUrl('https://t.me/s/$user$q&embed=1');
     if (html.contains('data-post="') || html.contains('tgme_widget_message')) {
       return html;
     }
-    if (html.contains('Preview channel') || html.contains('tgme_action_button')) {
-      try {
-        await controller.runJavaScript(
-            "var b=[...document.querySelectorAll('a')].find(a=>(a.textContent||'').includes('Preview'));if(b)b.click();");
-        for (var i = 0; i < 30; i++) {
-          await Future.delayed(const Duration(milliseconds: 500));
-          final h = _jsStr(await controller
-              .runJavaScriptReturningResult('document.documentElement.outerHTML'));
-          if (h.isNotEmpty) html = h;
-          if (h.contains('data-post="') || h.contains('tgme_widget_message')) break;
-        }
-      } catch (_) {}
+    // 2) افتح صفحة البروفايل لتجهيز الكوكيز
+    await _tryUrl('https://t.me/$user');
+    // 3) جرب النسخة /s/ بعد الكوكيز
+    html = await _tryUrl('https://t.me/s/$user$q');
+    if (html.contains('data-post="') || html.contains('tgme_widget_message')) {
+      return html;
     }
+    // 4) كحل أخير: Googlebot
+    try {
+      final r = await Dio(BaseOptions(headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+      }, receiveTimeout: const Duration(seconds: 20)))
+          .get('https://t.me/s/$user$q');
+      return r.data.toString();
+    } catch (_) {}
     return html;
   }
 
-  static Future<String> _fetchHtml(String url) async {
-    try {
-      final r = await Dio(BaseOptions(headers: {
-        'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-        'Accept':
-            'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
-      }, receiveTimeout: const Duration(seconds: 8)))
-          .get(url);
-      final s = r.data.toString();
-      if (s.contains('data-post="') || s.contains('tgme_widget_message')) return s;
-    } catch (_) {}
-    try {
-      final w = await _webviewHtml(url);
-      if (w.isNotEmpty) return w;
-    } catch (_) {}
-    return '';
-  }
-
-  static Future<String> raw(String user) => _fetchHtml('https://t.me/s/$user');
+  static Future<String> raw(String user) => _fetchHtml(user);
 
   static String cleanUser(String input) {
     var s = input.trim()
@@ -169,8 +146,7 @@ class Tg {
   static String _strip(String s) => _un(s).replaceAll(RegExp(r'<[^>]+>'), '');
 
   static Future<Page> fetchPage(String user, {int? before}) async {
-    final html = await _fetchHtml(
-        'https://t.me/s/$user${before != null ? '?before=$before' : ''}');
+    final html = await _fetchHtml(user, before: before);
     final title = RegExp(r'<meta property="og:title" content="([^"]*)"')
         .firstMatch(html)?.group(1);
     final avatar = RegExp(r'<meta property="og:image" content="([^"]*)"')
