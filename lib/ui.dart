@@ -293,61 +293,166 @@ class ChannelsPage extends StatefulWidget {
 }
 
 class _ChannelsPageState extends State<ChannelsPage> {
-  final _ctrl = TextEditingController();
   bool _busy = false;
 
-  Future _add() async {
-    final u = Tg.cleanUser(_ctrl.text);
-    if (u.isEmpty) return;
+  void _snack(String s) => ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(s), behavior: SnackBarBehavior.floating));
+
+  Future _add(String input) async {
+    final u = Tg.cleanUser(input);
+    if (u.isEmpty) {
+      _snack('اكتب رابط القناة أو اسم المستخدم أولًا');
+      return;
+    }
     setState(() => _busy = true);
+    _snack('جارٍ فحص القناة وجلب أفلامها…');
     try {
       final p = await Tg.fetchPage(u);
       await Store.addChannel(Channel(u, title: p.title, avatar: p.avatar));
       await Store.saveMovies(u, p.movies);
-      _ctrl.clear();
-    } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('تعذر العثور عليها — تأكد أنها قناة عامة ولها يوزر')));
+        _snack(p.movies.isEmpty
+            ? 'تمت الإضافة ✅ لكن لا توجد فيديوهات في القناة بعد'
+            : 'تمت إضافة «${p.title}» بنجاح ✅');
       }
+    } catch (_) {
+      if (mounted) _snack('تعذر العثور على القناة — تأكد أنها عامة ولها يوزر');
     }
     if (mounted) setState(() => _busy = false);
   }
 
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('القنوات')),
-    body: ListView(padding: const EdgeInsets.all(12), children: [
-      TextField(
-        controller: _ctrl,
-        decoration: InputDecoration(
-          hintText: 'الصق رابط القناة أو @اليوزر…',
-          prefixIcon: const Icon(Icons.add_link),
-          suffixIcon: _busy
-              ? const Padding(padding: EdgeInsets.all(12),
-                  child: CircularProgressIndicator(strokeWidth: 2))
-              : IconButton(icon: const Icon(Icons.add_circle, color: Colors.amber),
-                  onPressed: _add),
-          filled: true, fillColor: const Color(0xFF151B23),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide.none),
-        ),
+  void _openAddSheet() {
+    final ctrl = TextEditingController();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF151B23),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (_) => Padding(
+        padding: EdgeInsets.only(
+            left: 20, right: 20, top: 16,
+            bottom: MediaQuery.of(context).viewInsets.bottom + 20),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Container(width: 40, height: 4,
+              decoration: BoxDecoration(color: Colors.grey.shade700,
+                  borderRadius: BorderRadius.circular(2))),
+          const SizedBox(height: 20),
+          const Row(children: [
+            Icon(Icons.add_circle, color: Colors.amber, size: 28),
+            SizedBox(width: 8),
+            Text('إضافة قناة جديدة',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          ]),
+          const SizedBox(height: 8),
+          Text('تعمل القنوات العامة فقط (التي تظهر أفلامها لأي زائر)',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
+          const SizedBox(height: 16),
+          TextField(
+            controller: ctrl,
+            autofocus: true,
+            textDirection: TextDirection.ltr,
+            decoration: InputDecoration(
+              hintText: '@username  أو  t.me/username',
+              hintStyle: const TextStyle(fontSize: 13),
+              prefixIcon: const Icon(Icons.link, color: Colors.amber),
+              filled: true, fillColor: const Color(0xFF0B0F14),
+              border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide.none),
+            ),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: FilledButton.icon(
+              onPressed: () {
+                final v = ctrl.text.trim();
+                Navigator.pop(context);
+                _add(v);
+              },
+              icon: const Icon(Icons.playlist_add_check),
+              label: const Text('إضافة القناة', style: TextStyle(fontSize: 16)),
+            ),
+          ),
+        ]),
       ),
-      const SizedBox(height: 16),
-      ...Store.channels().map((c) => ListTile(
-            leading: CircleAvatar(
-                backgroundImage: c.avatar != null ? NetworkImage(c.avatar!) : null,
-                child: c.avatar == null ? const Icon(Icons.rss_feed) : null),
-            title: Text(c.title.isEmpty ? c.username : c.title,
-                style: const TextStyle(fontSize: 14)),
-            subtitle: Text('@${c.username} • ${Store.moviesOf(c.username).length} فيلم',
-                style: const TextStyle(fontSize: 11)),
-            trailing: IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
-                onPressed: () async {
-                  await Store.delChannel(c.username);
-                  setState(() {});
-                }),
-          )),
-    ]),
-  );
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final chs = Store.channels();
+    return Scaffold(
+      appBar: AppBar(title: const Text('القنوات')),
+      body: chs.isEmpty
+          ? Center(child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.rss_feed, size: 80, color: Colors.amber.shade700),
+                const SizedBox(height: 16),
+                const Text('لا توجد قنوات بعد',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                Text('أضف قناة أفلام عامة من تليجرام وستظهر جميع فيديوهاتها هنا بواجهة سينما',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 13, color: Colors.grey.shade400)),
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: FilledButton.icon(
+                    onPressed: _busy ? null : _openAddSheet,
+                    icon: _busy
+                        ? const SizedBox(width: 20, height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.add),
+                    label: const Text('إضافة قناة', style: TextStyle(fontSize: 16)),
+                  ),
+                ),
+              ]),
+            ))
+          : ListView(padding: const EdgeInsets.all(12), children: [
+              ...chs.map((c) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Card(
+                      child: ListTile(
+                        leading: CircleAvatar(
+                            backgroundColor: const Color(0xFF0B0F14),
+                            backgroundImage:
+                                c.avatar != null ? NetworkImage(c.avatar!) : null,
+                            child: c.avatar == null
+                                ? const Icon(Icons.rss_feed, color: Colors.amber)
+                                : null),
+                        title: Text(c.title.isEmpty ? c.username : c.title,
+                            style: const TextStyle(
+                                fontSize: 15, fontWeight: FontWeight.bold)),
+                        subtitle: Text(
+                            '@${c.username} • ${Store.moviesOf(c.username).length} فيلم',
+                            style: const TextStyle(fontSize: 11)),
+                        trailing: IconButton(
+                            icon: const Icon(Icons.delete_outline, color: Colors.red),
+                            onPressed: () async {
+                              await Store.delChannel(c.username);
+                              setState(() {});
+                            }),
+                      ),
+                    ),
+                  )),
+            ]),
+      floatingActionButton: chs.isEmpty
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: _busy ? null : _openAddSheet,
+              backgroundColor: Colors.amber,
+              foregroundColor: Colors.black,
+              icon: _busy
+                  ? const SizedBox(width: 18, height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.add),
+              label: const Text('إضافة قناة'),
+            ),
+    );
+  }
 }
