@@ -1,8 +1,17 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:video_player/video_player.dart';
-import 'package:chewie/chewie.dart';
 import 'core.dart';
+
+String _fmt(Duration d) {
+  final h = d.inHours, m = d.inMinutes % 60, s = d.inSeconds % 60;
+  return h > 0
+      ? '$h:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}'
+      : '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+}
 
 /* ======== الهيكل الرئيسي ======== */
 class HomeShell extends StatelessWidget {
@@ -165,10 +174,15 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
-/* ======== بطاقة فيلم ======== */
+/* ======== بطاقة فيلم (مع بوستر) ======== */
 class MovieCard extends StatelessWidget {
   final Movie m;
   const MovieCard({super.key, required this.m});
+
+  Widget _ph() => Container(
+      color: const Color(0xFF1B2430),
+      child: const Center(
+          child: Icon(Icons.movie_filter, size: 42, color: Colors.amber)));
 
   @override
   Widget build(BuildContext context) => Card(
@@ -176,13 +190,15 @@ class MovieCard extends StatelessWidget {
         margin: const EdgeInsets.all(6),
         child: InkWell(
           onTap: () => Navigator.push(context,
-              MaterialPageRoute(builder: (_) => PlayerScreen(m: m))),
+              MaterialPageRoute(builder: (_) => MovieDetailsScreen(m: m))),
           child: Stack(fit: StackFit.expand, children: [
-            Container(
-                color: const Color(0xFF1B2430),
-                child: const Center(
-                    child: Icon(Icons.movie_filter,
-                        size: 42, color: Colors.amber))),
+            m.poster.isNotEmpty
+                ? CachedNetworkImage(
+                    imageUrl: m.poster,
+                    fit: BoxFit.cover,
+                    placeholder: (_, __) => _ph(),
+                    errorWidget: (_, __, ___) => _ph())
+                : _ph(),
             Positioned(
                 left: 0,
                 right: 0,
@@ -241,125 +257,416 @@ class MovieCard extends StatelessWidget {
       );
 }
 
-/* ======== مشغل البث عبر السيرفر ======== */
-class PlayerScreen extends StatefulWidget {
+/* ======== شاشة تفاصيل الفيلم ======== */
+class MovieDetailsScreen extends StatelessWidget {
   final Movie m;
-  const PlayerScreen({super.key, required this.m});
+  const MovieDetailsScreen({super.key, required this.m});
+
+  Widget _chip(String t) => Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+          color: const Color(0xFF1B2430),
+          borderRadius: BorderRadius.circular(20)),
+      child: Text(t, style: const TextStyle(fontSize: 11, color: Color(0xFFE5B13D))));
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        backgroundColor: const Color(0xFF0B0F14),
+        body: Stack(fit: StackFit.expand, children: [
+          if (m.poster.isNotEmpty)
+            CachedNetworkImage(imageUrl: m.poster, fit: BoxFit.cover,
+                errorWidget: (_, __, ___) => const SizedBox()),
+          Container(
+              decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                Colors.black87,
+                Colors.transparent,
+                Color(0xFF0B0F14)
+              ]))),
+          SafeArea(
+              child: Column(children: [
+            Row(children: [
+              IconButton(
+                  icon: const Icon(Icons.arrow_back, color: Colors.white),
+                  onPressed: () => Navigator.pop(context)),
+              Expanded(
+                  child: Text(m.title,
+                      style: const TextStyle(
+                          fontSize: 16, fontWeight: FontWeight.bold),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis)),
+            ]),
+            const Spacer(),
+            Container(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(m.title,
+                        style: const TextStyle(
+                            fontSize: 22, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    Wrap(spacing: 8, runSpacing: 6, children: [
+                      if (m.quality.isNotEmpty) _chip(m.quality),
+                      if (m.duration.isNotEmpty) _chip(m.duration),
+                      if (m.size.isNotEmpty) _chip(m.size),
+                      ...m.genres.map(_chip),
+                    ]),
+                    if (m.description.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      ConstrainedBox(
+                          constraints: const BoxConstraints(maxHeight: 140),
+                          child: SingleChildScrollView(
+                              child: Text(m.description,
+                                  style: TextStyle(
+                                      color: Colors.grey.shade300,
+                                      fontSize: 13,
+                                      height: 1.6)))),
+                    ],
+                    const SizedBox(height: 16),
+                    Row(children: [
+                      Expanded(
+                          child: FilledButton.icon(
+                              onPressed: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                      builder: (_) => PlayerScreen(
+                                          title: m.title,
+                                          url: m.videoUrl,
+                                          movie: m))),
+                              icon: const Icon(Icons.play_arrow),
+                              label: const Text('تشغيل'),
+                              style: FilledButton.styleFrom(
+                                  backgroundColor: const Color(0xFFE5B13D),
+                                  foregroundColor: Colors.black,
+                                  minimumSize: const Size.fromHeight(52),
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius:
+                                          BorderRadius.circular(14))))),
+                      const SizedBox(width: 10),
+                      Expanded(
+                          child: OutlinedButton.icon(
+                              onPressed: () {
+                                Downloader.start(m);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                        content: Text(
+                                            'بدأ التحميل — تابعه في تبويب تحميلاتي')));
+                              },
+                              icon: const Icon(Icons.download),
+                              label: const Text('تحميل'),
+                              style: OutlinedButton.styleFrom(
+                                  minimumSize: const Size.fromHeight(52),
+                                  foregroundColor: const Color(0xFFE5B13D),
+                                  side: const BorderSide(
+                                      color: Color(0xFFE5B13D)),
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius:
+                                          BorderRadius.circular(14))))),
+                    ]),
+                  ]),
+            ),
+          ])),
+        ]),
+      );
+}
+
+/* ======== المشغل الاحترافي بالإيماءات ======== */
+class PlayerScreen extends StatefulWidget {
+  final String title;
+  final String? url;
+  final String? filePath;
+  final Movie? movie;
+  const PlayerScreen(
+      {super.key, required this.title, this.url, this.filePath, this.movie});
   @override
   State<PlayerScreen> createState() => _PlayerScreenState();
 }
 
 class _PlayerScreenState extends State<PlayerScreen> {
-  ChewieController? _cc;
-  VideoPlayerController? _vp;
-  bool _err = false;
+  VideoPlayerController? _c;
+  bool _ready = false, _err = false, _ui = true;
+  Timer? _hide;
+  // الإيماءات
+  Offset? _start;
+  int _gmode = 0; // 1 تقديم/ترجيع, 2 صوت, 3 إضاءة
+  String _glabel = '';
+  double _vol = 1.0, _bright = 1.0;
+  int _seekBase = 0, _seekDelta = 0;
 
   @override
   void initState() {
     super.initState();
-    Store.markWatched(widget.m);
+    if (widget.movie != null) Store.markWatched(widget.movie!);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     _init();
+    _poke();
   }
 
   Future _init() async {
     try {
-      final c = VideoPlayerController.networkUrl(Uri.parse(widget.m.videoUrl));
+      final c = widget.filePath != null
+          ? VideoPlayerController.file(File(widget.filePath!))
+          : VideoPlayerController.networkUrl(Uri.parse(widget.url!));
+      c.addListener(() {
+        if (mounted) setState(() {});
+      });
       await c.initialize();
       if (!mounted) {
         c.dispose();
         return;
       }
       setState(() {
-        _vp = c;
-        _cc = ChewieController(
-            videoPlayerController: c,
-            aspectRatio: c.value.aspectRatio,
-            autoPlay: false,
-            allowFullScreen: true);
+        _c = c;
+        _ready = true;
       });
+      c.setVolume(1);
+      c.play();
     } catch (_) {
       if (mounted) setState(() => _err = true);
     }
   }
 
-  @override
-  void dispose() {
-    _cc?.dispose();
-    _vp?.dispose();
-    super.dispose();
+  void _poke() {
+    _hide?.cancel();
+    _hide = Timer(const Duration(seconds: 4), () {
+      if (mounted) setState(() => _ui = false);
+    });
   }
 
-  @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: Text(widget.m.title)),
-        body: _err
-            ? const Center(
-                child: Text('تعذر تشغيل الفيديو',
-                    style: TextStyle(color: Colors.grey)))
-            : _cc == null
-                ? const Center(child: CircularProgressIndicator())
-                : Center(child: Chewie(controller: _cc!)),
-      );
-}
-
-/* ======== مشغل محلي ======== */
-class LocalPlayerScreen extends StatefulWidget {
-  final String title, path;
-  const LocalPlayerScreen({super.key, required this.title, required this.path});
-  @override
-  State<LocalPlayerScreen> createState() => _LocalPlayerScreenState();
-}
-
-class _LocalPlayerScreenState extends State<LocalPlayerScreen> {
-  ChewieController? _cc;
-  VideoPlayerController? _vp;
-  bool _err = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _init();
-  }
-
-  Future _init() async {
-    try {
-      final c = VideoPlayerController.file(File(widget.path));
-      await c.initialize();
-      if (!mounted) {
-        c.dispose();
-        return;
-      }
-      setState(() {
-        _vp = c;
-        _cc = ChewieController(
-            videoPlayerController: c,
-            aspectRatio: c.value.aspectRatio,
-            autoPlay: false,
-            allowFullScreen: true);
-      });
-    } catch (_) {
-      if (mounted) setState(() => _err = true);
-    }
+  void _jump(int sec) {
+    final c = _c;
+    if (c == null || !c.value.isInitialized) return;
+    final t = c.value.duration.inSeconds;
+    final s = (c.value.position.inSeconds + sec).clamp(0, t);
+    c.seekTo(Duration(seconds: s));
+    setState(() {
+      _gmode = 1;
+      _glabel = '${sec > 0 ? '+' : ''}$sec ثانية';
+    });
+    Future.delayed(const Duration(milliseconds: 800), () {
+      if (mounted) setState(() => _gmode = 0);
+    });
   }
 
   @override
   void dispose() {
-    _cc?.dispose();
-    _vp?.dispose();
+    _hide?.cancel();
+    _c?.dispose();
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: Text(widget.title)),
-        body: _err
-            ? const Center(
-                child:
-                    Text('الملف غير موجود', style: TextStyle(color: Colors.grey)))
-            : _cc == null
-                ? const Center(child: CircularProgressIndicator())
-                : Center(child: Chewie(controller: _cc!)),
-      );
+  Widget build(BuildContext context) {
+    final c = _c;
+    final dur = c?.value.isInitialized == true ? c.value.duration : Duration.zero;
+    final pos = c?.value.isInitialized == true ? c.value.position : Duration.zero;
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(fit: StackFit.expand, children: [
+        if (c != null && _ready)
+          Center(
+              child: AspectRatio(
+                  aspectRatio: c.value.aspectRatio, child: VideoPlayer(c))),
+        // طبقة الإضاءة
+        IgnorePointer(
+            child: Container(
+                color: Colors.black.withOpacity((1 - _bright) * 0.85))),
+        // طبقة الإيماءات
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () {
+            setState(() => _ui = !_ui);
+            if (_ui) _poke();
+          },
+          onDoubleTapDown: (d) {
+            final w = MediaQuery.of(context).size.width;
+            _jump(d.localPosition.dx > w / 2 ? 10 : -10);
+          },
+          onHorizontalDragStart: (d) {
+            _start = d.localPosition;
+            _seekBase = pos.inSeconds;
+            _seekDelta = 0;
+          },
+          onHorizontalDragUpdate: (d) {
+            _seekDelta = ((d.localPosition.dx - (_start?.dx ?? 0)) * 0.1).round();
+            setState(() {
+              _gmode = 1;
+              _glabel =
+                  '${_seekDelta >= 0 ? '+' : ''}$_seekDelta ث → ${_fmt(Duration(seconds: (_seekBase + _seekDelta).clamp(0, dur.inSeconds)))}';
+            });
+          },
+          onHorizontalDragEnd: (_) {
+            final s = (_seekBase + _seekDelta).clamp(0, dur.inSeconds);
+            c?.seekTo(Duration(seconds: s));
+            setState(() => _gmode = 0);
+          },
+          onVerticalDragStart: (d) {
+            final w = MediaQuery.of(context).size.width;
+            _start = d.localPosition;
+            setState(() => _gmode = d.localPosition.dx > w / 2 ? 2 : 3);
+          },
+          onVerticalDragUpdate: (d) {
+            final dy = (_start?.dy ?? 0) - d.localPosition.dy;
+            final step = dy / 400;
+            if (_gmode == 2) {
+              _vol = (_vol + step).clamp(0.0, 1.0);
+              c?.setVolume(_vol);
+              setState(() => _glabel = '${(_vol * 100).round()}%');
+            } else if (_gmode == 3) {
+              _bright = (_bright + step).clamp(0.0, 1.0);
+              setState(() => _glabel = '${(_bright * 100).round()}%');
+            }
+            _start = d.localPosition;
+          },
+          onVerticalDragEnd: (_) => setState(() => _gmode = 0),
+          child: Container(color: Colors.transparent),
+        ),
+        // مؤشر الإيماءات
+        if (_gmode != 0)
+          Center(
+              child: Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                      color: Colors.black54,
+                      borderRadius: BorderRadius.circular(16)),
+                  child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                            _gmode == 2
+                                ? Icons.volume_up
+                                : _gmode == 3
+                                    ? Icons.brightness_6
+                                    : Icons.fast_forward,
+                            color: Colors.amber,
+                            size: 34),
+                        const SizedBox(height: 6),
+                        Text(_glabel,
+                            style: const TextStyle(
+                                color: Colors.white, fontSize: 13)),
+                      ]))),
+        if (_ready && c != null && c.value.isBuffering)
+          const Center(
+              child: CircularProgressIndicator(color: Color(0xFFE5B13D))),
+        if (_err)
+          const Center(
+              child: Text('تعذر تشغيل الفيديو — تحقق من الاتصال',
+                  style: TextStyle(color: Colors.grey))),
+        if (!_ready && !_err)
+          const Center(
+              child: CircularProgressIndicator(color: Color(0xFFE5B13D))),
+        // الشريط العلوي
+        if (_ui)
+          Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: Container(
+                  decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [Colors.black87, Colors.transparent])),
+                  child: SafeArea(
+                      child: Row(children: [
+                    IconButton(
+                        icon: const Icon(Icons.arrow_back,
+                            color: Colors.white),
+                        onPressed: () => Navigator.pop(context)),
+                    Expanded(
+                        child: Text(widget.title,
+                            style: const TextStyle(
+                                fontSize: 15, fontWeight: FontWeight.bold),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis)),
+                  ])))),
+        // شريط التحكم السفلي
+        if (_ui && _ready && c != null)
+          Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: Container(
+                  decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                          begin: Alignment.bottomCenter,
+                          end: Alignment.topCenter,
+                          colors: [Colors.black87, Colors.transparent])),
+                  child: SafeArea(
+                      child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                        Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              IconButton(
+                                  icon: const Icon(Icons.replay_10,
+                                      color: Colors.white70),
+                                  onPressed: () => _jump(-10)),
+                              IconButton(
+                                  icon: Icon(
+                                      c.value.isPlaying
+                                          ? Icons.pause
+                                          : Icons.play_arrow,
+                                      color: Colors.amber,
+                                      size: 44),
+                                  onPressed: () {
+                                    c.value.isPlaying ? c.pause() : c.play();
+                                    _poke();
+                                  }),
+                              IconButton(
+                                  icon: const Icon(Icons.forward_10,
+                                      color: Colors.white70),
+                                  onPressed: () => _jump(10)),
+                            ]),
+                        Row(children: [
+                          Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 8),
+                              child: Text(_fmt(pos),
+                                  style: const TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.white70))),
+                          Expanded(
+                              child: SliderTheme(
+                                  data: SliderThemeData(
+                                      activeTrackColor:
+                                          const Color(0xFFE5B13D),
+                                      inactiveTrackColor:
+                                          Colors.white24,
+                                      thumbColor: const Color(0xFFE5B13D),
+                                      trackHeight: 3,
+                                      thumbShape:
+                                          const RoundSliderThumbShape(
+                                              enabledThumbRadius: 7)),
+                                  child: Slider(
+                                      value: pos.inSeconds
+                                          .toDouble()
+                                          .clamp(0, dur.inSeconds.toDouble()),
+                                      max: dur.inSeconds
+                                          .toDouble()
+                                          .clamp(1, 100000000),
+                                      onChanged: (v) => c.seekTo(
+                                          Duration(
+                                              seconds: v.toInt()))))),
+                          Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 8),
+                              child: Text(_fmt(dur),
+                                  style: const TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.white70))),
+                        ]),
+                      ])))),
+      ]),
+    );
+  }
 }
 
 /* ======== شاهدتها ======== */
@@ -389,7 +696,10 @@ class HistoryPage extends StatelessWidget {
                         onTap: () => Navigator.push(
                             context,
                             MaterialPageRoute(
-                                builder: (_) => PlayerScreen(m: h[i]))),
+                                builder: (_) => PlayerScreen(
+                                    title: h[i].title,
+                                    url: h[i].videoUrl,
+                                    movie: h[i]))),
                         trailing: IconButton(
                             icon: const Icon(Icons.delete_outline,
                                 color: Colors.red, size: 20),
@@ -430,8 +740,8 @@ class DownloadsPage extends StatelessWidget {
                           onTap: () => Navigator.push(
                               context,
                               MaterialPageRoute(
-                                  builder: (_) => LocalPlayerScreen(
-                                      title: m.title, path: path))),
+                                  builder: (_) => PlayerScreen(
+                                      title: m.title, filePath: path))),
                           trailing: IconButton(
                               icon: const Icon(Icons.delete_outline,
                                   color: Colors.red, size: 20),
