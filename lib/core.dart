@@ -1,7 +1,6 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:dio/dio.dart';
-import 'package:dio_cookie_manager/dio_cookie_manager.dart';
-import 'package:cookie_jar/cookie_jar.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 import 'package:path_provider/path_provider.dart';
@@ -77,58 +76,11 @@ class Page {
 }
 
 class Tg {
-  static final CookieJar _jar = CookieJar();
-  static Dio _dio() => Dio(BaseOptions(headers: {
-        'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'none',
-        'Sec-Fetch-User': '?1',
-        'Upgrade-Insecure-Requests': '1',
-        'Cache-Control': 'max-age=0',
-      }, receiveTimeout: const Duration(seconds: 25), followRedirects: true))
-    ..interceptors.add(CookieManager(_jar));
-
-  static Future<String> _tryUrl(String url) async {
-    try {
-      final r = await _dio().get(url);
-      return r.data.toString();
-    } catch (_) {
-      return '';
-    }
-  }
-
-  static Future<String> _fetchHtml(String user, {int? before}) async {
-    final q = before != null ? '?before=$before' : '';
-    // 1) حاول نسخة embed أولاً (الأكثر تسامحًا)
-    var html = await _tryUrl('https://t.me/s/$user$q&embed=1');
-    if (html.contains('data-post="') || html.contains('tgme_widget_message')) {
-      return html;
-    }
-    // 2) افتح صفحة البروفايل لتجهيز الكوكيز
-    await _tryUrl('https://t.me/$user');
-    // 3) جرب النسخة /s/ بعد الكوكيز
-    html = await _tryUrl('https://t.me/s/$user$q');
-    if (html.contains('data-post="') || html.contains('tgme_widget_message')) {
-      return html;
-    }
-    // 4) كحل أخير: Googlebot
-    try {
-      final r = await Dio(BaseOptions(headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
-      }, receiveTimeout: const Duration(seconds: 20)))
-          .get('https://t.me/s/$user$q');
-      return r.data.toString();
-    } catch (_) {}
-    return html;
-  }
-
-  static Future<String> raw(String user) => _fetchHtml(user);
+  static final Dio _dio = Dio(BaseOptions(
+      receiveTimeout: const Duration(seconds: 15),
+      connectTimeout: const Duration(seconds: 10),
+      followRedirects: true,
+      validateStatus: (s) => s != null && s < 500));
 
   static String cleanUser(String input) {
     var s = input.trim()
@@ -145,48 +97,142 @@ class Tg {
 
   static String _strip(String s) => _un(s).replaceAll(RegExp(r'<[^>]+>'), '');
 
-  static Future<Page> fetchPage(String user, {int? before}) async {
-    final html = await _fetchHtml(user, before: before);
-    final title = RegExp(r'<meta property="og:title" content="([^"]*)"')
-        .firstMatch(html)?.group(1);
-    final avatar = RegExp(r'<meta property="og:image" content="([^"]*)"')
-        .firstMatch(html)?.group(1);
-    final next = RegExp(r'before=(\d+)').firstMatch(html)?.group(1);
+  static Future<String?> _fetchEmbed(String user, int msgId) async {
+    try {
+      final r = await _dio.get('https://t.me/$user/$msgId?embed=1&mode=tme',
+          options: Options(headers: {'User-Agent': 'Mozilla/5.0', 'Accept': '*/*'}));
+      if (r.statusCode == 200) {
+        final data = r.data.toString();
+        if (data.contains('tgme_widget_message') || data.contains('tgme_widget')) {
+          return data;
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
 
-    final movies = <Movie>[];
-    for (final part in html.split('data-post="').skip(1)) {
-      final head = RegExp(r'^([^/"]+)/(\d+)').firstMatch(part);
-      if (head == null) continue;
-      var video = RegExp(r'<video[^>]*src="([^"]+)"').firstMatch(part)?.group(1);
-      if (video == null || video.isEmpty) {
-        video = RegExp(r"<video[^>]*src='([^']+)'").firstMatch(part)?.group(1);
+  static Future<int?> _findLatestMsgId(String user) async {
+    int low = 1;
+    int high = 1000000;
+    int? lastValid;
+    while (low <= high) {
+      final mid = low + ((high - low) ~/ 2);
+      final exists = await _fetchEmbed(user, mid) != null;
+      if (exists) {
+        lastValid = mid;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
       }
-      if (video == null || video.isEmpty) {
-        video = RegExp(r'<source[^>]*src="([^"]+)"').firstMatch(part)?.group(1);
-      }
-      if (video == null || video.isEmpty) {
-        video = RegExp(r'''https?://[^"'<>\s]+\.mp4[^"'<>\s]*''')
-            .firstMatch(part)?.group(0);
-      }
-      if (video == null || video.isEmpty) continue;
-      var poster =
-          RegExp(r"background-image:url\('([^']+)'").firstMatch(part)?.group(1) ?? '';
-      if (poster.startsWith('//')) poster = 'https:$poster';
-      var duration = RegExp(r'duration="([^"]+)"').firstMatch(part)?.group(1) ?? '';
-      if (duration.isEmpty) {
-        duration = RegExp(r'video_duration[^>]*>([^<]+)<')
-                .firstMatch(part)?.group(1)?.trim() ?? '';
-      }
-      final size =
-          RegExp(r'video_size[^>]*>([^<]+)<').firstMatch(part)?.group(1)?.trim() ?? '';
-      final cap = RegExp(r'message_text[^>]*>([\s\S]*?)</div>').firstMatch(part);
-      final dt = RegExp(r'datetime="([^"]+)"').firstMatch(part)?.group(1);
-      movies.add(_build(head.group(1)!, int.parse(head.group(2)!), poster, video,
-          cap == null ? '' : _strip(cap.group(1)!),
-          DateTime.tryParse(dt ?? '')?.millisecondsSinceEpoch ?? 0, duration, size));
+      if (high - low < 10) break;
     }
-    return Page(movies, next == null ? null : int.parse(next),
-        title == null ? user : _un(title), avatar);
+    return lastValid;
+  }
+
+  static Future<({String title, String? avatar})> _getChannelInfo(String user) async {
+    try {
+      final r = await Dio(BaseOptions(
+              receiveTimeout: const Duration(seconds: 10), followRedirects: true))
+          .get('https://t.me/$user',
+              options: Options(headers: {
+                'User-Agent':
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept': 'text/html',
+              }));
+      final html = r.data.toString();
+      final title = RegExp(r'<meta property="og:title" content="([^"]*)"')
+              .firstMatch(html)?.group(1) ??
+          user;
+      final avatar = RegExp(r'<meta property="og:image" content="([^"]*)"')
+          .firstMatch(html)?.group(1);
+      return (title: _un(title), avatar: avatar);
+    } catch (_) {
+      return (title: user, avatar: null);
+    }
+  }
+
+  static Future<Page> fetchPage(String user, {int? before}) async {
+    final info = await _getChannelInfo(user);
+    int? startId = before;
+    if (startId == null) {
+      startId = await _findLatestMsgId(user);
+      if (startId == null) return Page([], null, info.title, info.avatar);
+    }
+    final results = <int, String>{};
+    final tasks = <Future>[];
+    for (var i = 0; i < 30; i++) {
+      final id = startId - i;
+      if (id < 1) break;
+      tasks.add(() async {
+        final html = await _fetchEmbed(user, id);
+        if (html != null) results[id] = html;
+      }());
+    }
+    await Future.wait(tasks);
+    final movies = <Movie>[];
+    for (final id in results.keys.toList()..sort((a, b) => b.compareTo(a))) {
+      final movie = _parseEmbed(user, id, results[id]!);
+      if (movie != null) movies.add(movie);
+    }
+    final nextBefore = movies.isEmpty ? null : (movies.last.msgId - 1);
+    return Page(movies, nextBefore, info.title, info.avatar);
+  }
+
+  /// يجلب كل الأفلام الأحدث من afterMsgId (0 = كل شيء)
+  static Future<List<Movie>> fetchNew(String user, {required int afterMsgId}) async {
+    final out = <Movie>[];
+    int? before;
+    while (true) {
+      final p = await fetchPage(user, before: before);
+      if (p.movies.isEmpty) break;
+      var stop = false;
+      for (final m in p.movies) {
+        if (m.msgId <= afterMsgId) {
+          stop = true;
+          break;
+        }
+        out.add(m);
+      }
+      if (stop || p.before == null) break;
+      before = p.before;
+      if (out.length > 5000) break;
+    }
+    return out;
+  }
+
+  static Movie? _parseEmbed(String channel, int msgId, String html) {
+    var video = RegExp(r'data-video="([^"]+)"').firstMatch(html)?.group(1) ??
+        RegExp(r'<video[^>]*src="([^"]+)"').firstMatch(html)?.group(1) ??
+        RegExp(r'<source[^>]*src="([^"]+)"').firstMatch(html)?.group(1) ??
+        RegExp(r'''href="([^"]+\.mp4[^"]*)"''').firstMatch(html)?.group(1);
+    if (video == null || video.isEmpty) {
+      video = RegExp(r'''https?://[^"'<>\s]+\.mp4[^"'<>\s]*''').firstMatch(html)?.group(0);
+    }
+    if (video == null || video.isEmpty) return null;
+    if (video.startsWith('//')) video = 'https:$video';
+
+    var poster = RegExp(r'''data-poster="([^"]+)"''').firstMatch(html)?.group(1) ??
+        RegExp(r'''background-image:\s*url\(['"]?([^'")\s]+)['"]?\)''',
+                caseSensitive: false)
+            .firstMatch(html)?.group(1) ??
+        RegExp(r'''<img[^>]*src="([^"]+)"''').firstMatch(html)?.group(1) ??
+        '';
+    if (poster.startsWith('//')) poster = 'https:$poster';
+
+    var duration = RegExp(r'data-duration="([^"]+)"').firstMatch(html)?.group(1) ??
+        RegExp(r'duration[^>]*>([^<]+)<').firstMatch(html)?.group(1)?.trim() ?? '';
+    var size = RegExp(r'video_size[^>]*>([^<]+)<').firstMatch(html)?.group(1)?.trim() ?? '';
+
+    final capMatch = RegExp(
+            r'<div[^>]*class="[^"]*tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)</div>',
+            caseSensitive: false)
+        .firstMatch(html);
+    final caption = capMatch != null ? _strip(capMatch.group(1) ?? '') : '';
+
+    final dt = RegExp(r'<time[^>]*datetime="([^"]+)"').firstMatch(html)?.group(1);
+    final date = DateTime.tryParse(dt ?? '')?.millisecondsSinceEpoch ?? 0;
+
+    return _build(channel, msgId, poster, video, caption, date, duration, size);
   }
 
   static Movie _build(String ch, int mid, String poster, String video,
@@ -220,6 +266,48 @@ class Tg {
   }
 }
 
+/* ======== المزامنة التلقائية ======== */
+class Sync {
+  static bool _busy = false;
+  static Timer? _timer;
+  static final ValueNotifier<String> status = ValueNotifier('');
+
+  static void start() {
+    _timer ??= Timer.periodic(const Duration(hours: 2), (_) => checkAll());
+    Future.delayed(const Duration(seconds: 3), checkAll);
+  }
+
+  static Future checkAll() async {
+    if (_busy) return;
+    _busy = true;
+    for (final c in Store.channels()) {
+      status.value = 'التحقق من الجديد: ${c.title}';
+      try {
+        final fresh = await Tg.fetchNew(c.username, afterMsgId: Store.maxId(c.username));
+        if (fresh.isNotEmpty) await Store.saveMovies(c.username, fresh);
+      } catch (_) {}
+    }
+    status.value = '';
+    _busy = false;
+    Store.tick.value++;
+  }
+
+  static Future loadAll(String user) async {
+    while (_busy) {
+      await Future.delayed(const Duration(seconds: 1));
+    }
+    _busy = true;
+    status.value = 'تحميل كل أفلام القناة…';
+    try {
+      final all = await Tg.fetchNew(user, afterMsgId: 0);
+      if (all.isNotEmpty) await Store.saveMovies(user, all);
+    } catch (_) {}
+    status.value = '';
+    _busy = false;
+    Store.tick.value++;
+  }
+}
+
 class Store {
   static late Box _ch, _mv, _st;
   static final ValueNotifier<int> tick = ValueNotifier(0);
@@ -247,8 +335,24 @@ class Store {
 
   static List<Movie> moviesOf(String u) => ((_mv.get(u) as List?) ?? [])
       .map((e) => Movie.fromJson(Map<String, dynamic>.from(e))).toList();
-  static Future saveMovies(String u, List<Movie> l) =>
-      _mv.put(u, l.map((e) => e.toJson()).toList());
+
+  static int maxId(String u) {
+    var m = 0;
+    for (final e in moviesOf(u)) {
+      if (e.msgId > m) m = e.msgId;
+    }
+    return m;
+  }
+
+  static Future saveMovies(String u, List<Movie> l) async {
+    final old = moviesOf(u);
+    final ids = old.map((e) => e.msgId).toSet();
+    final merged = [...old, ...l.where((e) => !ids.contains(e.msgId))];
+    merged.sort((a, b) => b.msgId.compareTo(a.msgId));
+    await _mv.put(u, merged.map((e) => e.toJson()).toList());
+    tick.value++;
+  }
+
   static List<Movie> all() => channels()
       .expand((c) => moviesOf(c.username)).toList()
         ..sort((a, b) => b.date.compareTo(a.date));
