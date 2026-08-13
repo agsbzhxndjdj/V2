@@ -318,7 +318,8 @@ class _ChannelsPageState extends State<ChannelsPage> {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('القنوات')),
     body: ListView(padding: const EdgeInsets.all(12), children: [
-      TextField(controller: _ctrl,
+      TextField(
+        controller: _ctrl,
         decoration: InputDecoration(
           hintText: 'الصق رابط القناة أو @اليوزر…',
           prefixIcon: const Icon(Icons.add_link),
@@ -329,7 +330,9 @@ class _ChannelsPageState extends State<ChannelsPage> {
                   onPressed: _add),
           filled: true, fillColor: const Color(0xFF151B23),
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide.none)),
+              borderSide: BorderSide.none),
+        ),
+      ),
       const SizedBox(height: 16),
       ...Store.channels().map((c) => ListTile(
             leading: CircleAvatar(
@@ -347,4 +350,4 @@ class _ChannelsPageState extends State<ChannelsPage> {
           )),
     ]),
   );
-      }
+}
