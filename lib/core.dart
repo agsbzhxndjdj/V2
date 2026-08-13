@@ -108,7 +108,7 @@ class Tg {
     final completer = Completer<void>();
     final headless = HeadlessInAppWebView(
       initialUrlRequest: URLRequest(url: WebUri(url)),
-      initialOptions: InAppWebViewOptions(
+      initialSettings: InAppWebViewSettings(
         javaScriptEnabled: true,
         userAgent:
             'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36',
