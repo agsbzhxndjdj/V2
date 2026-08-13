@@ -4,6 +4,7 @@ import 'package:chewie/chewie.dart';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'core.dart';
 
 String fmtDate(int ms) {
@@ -212,6 +213,7 @@ class _HomePageState extends State<HomePage> {
           label: Text(t, style: TextStyle(fontSize: small ? 11 : 13)),
           selected: sel, onSelected: (_) => on()));
 }
+
 class MovieCard extends StatelessWidget {
   final Movie m;
   const MovieCard({super.key, required this.m});
@@ -362,6 +364,7 @@ class DetailScreen extends StatelessWidget {
       avatar: Icon(i, size: 14, color: Colors.amber),
       label: Text(t, style: const TextStyle(fontSize: 11)));
 }
+
 class PlayerScreen extends StatefulWidget {
   final Movie m;
   final String? path;
@@ -492,7 +495,18 @@ class DownloadsPage extends StatelessWidget {
                           IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red),
                               onPressed: () async {
                                 await Downloader.deleteFile(e['path']);
-                              class ChannelsPage extends StatefulWidget {
+                                await Store.delDownload(m.id);
+                              }),
+                        ]),
+                        onTap: () => Navigator.push(context, MaterialPageRoute(
+                            builder: (_) => DetailScreen(m: m))));
+                    }),
+                  ]),
+            );
+          }));
+}
+
+class ChannelsPage extends StatefulWidget {
   const ChannelsPage({super.key});
   @override
   State<ChannelsPage> createState() => _ChannelsPageState();
@@ -653,13 +667,4 @@ class LoginScreen extends StatelessWidget {
         },
         child: const Text('المتابعة كضيف')),
   ])));
-}  await Store.delDownload(m.id);
-                              }),
-                        ]),
-                        onTap: () => Navigator.push(context, MaterialPageRoute(
-                            builder: (_) => DetailScreen(m: m))));
-                    }),
-                  ]),
-            );
-          }));
 }
