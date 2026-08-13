@@ -115,8 +115,8 @@ class Page {
 
 class Tg {
   static final Dio _dio = Dio(BaseOptions(
-      receiveTimeout: const Duration(seconds: 30),
-      connectTimeout: const Duration(seconds: 10),
+      receiveTimeout: const Duration(seconds: 60),
+      connectTimeout: const Duration(seconds: 15),
       headers: {'Accept': 'application/json'}));
 
   static String cleanUser(String input) {
@@ -131,9 +131,7 @@ class Tg {
   static String streamUrl(String user, int msgId) =>
       '${ApiConfig.baseUrl}/stream/$user/$msgId?key=${ApiConfig.apiKey}';
 
-  /// جلب أفلام القناة من البوت على السيرفر
   static Future<Page> fetchPage(String user, {int? before}) async {
-    // السيرفر لا يدعم تقسيم صفحات؛ نرجع فارغ عند طلب صفحة تالية
     if (before != null) return Page([], null, user, null);
 
     final res = await _dio.get('${ApiConfig.baseUrl}/channel/$user',
@@ -148,22 +146,21 @@ class Tg {
 
     final movies = <Movie>[];
     for (final item in (data['messages'] as List? ?? [])) {
-      if (item is! Map) continue; // تجاهل أي صيغة قديمة (نصوص فقط)
+      if (item is! Map) continue;
       if (item['has_video'] != true) continue;
       final mid = (item['msg_id'] is num) ? (item['msg_id'] as num).toInt() : 0;
       if (mid == 0) continue;
       final caption = (item['text'] ?? '').toString();
       final date =
           ((item['date'] is num) ? (item['date'] as num).toInt() : 0) * 1000;
-      movies.add(_build(user, mid, '', streamUrl(user, mid), caption, date,
+      movies.add(_build(user, mid, streamUrl(user, mid), caption, date,
           (item['duration'] ?? '').toString(), (item['size'] ?? '').toString()));
     }
     return Page(movies, null, title, avatar);
   }
 
-  /// تحليل العنوان/الجودة/التصنيفات من نص الرسالة
-  static Movie _build(String ch, int mid, String poster, String video,
-      String caption, int date, String dur, String size) {
+  static Movie _build(String ch, int mid, String video, String caption,
+      int date, String dur, String size) {
     final lines = caption
         .split('\n')
         .map((e) => e.trim())
@@ -194,7 +191,7 @@ class Tg {
         channel: ch,
         msgId: mid,
         title: title,
-        poster: poster,
+        poster: '',
         videoUrl: video,
         description: desc.join('\n'),
         genres: genres,
@@ -239,7 +236,8 @@ class Store {
   static Future saveMovies(String u, List<Movie> l) =>
       _mv.put(u, l.map((e) => e.toJson()).toList());
   static List<Movie> all() => channels()
-      .expand((c) => moviesOf(c.username)).toList()
+      .expand((c) => moviesOf(c.username))
+      .toList()
         ..sort((a, b) => b.date.compareTo(a.date));
 
   static List<Movie> history() => ((_st.get('history') as List?) ?? [])
