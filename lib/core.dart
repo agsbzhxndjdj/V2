@@ -1,14 +1,19 @@
-import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:hive/hive.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+/* ======== إعدادات الخادم ======== */
+class ApiConfig {
+  static const String baseUrl = 'http://13.49.41.150:5000';
+  static const String apiKey =
+      '9fded672447abe47324249048e9b3ee8a3472a6564e613dbfc50ff159655667a';
+}
+
+/* ======== تنقّل مشترك ======== */
 class App {
   static final ValueNotifier<String> scope = ValueNotifier('all');
   static final ValueNotifier<int> tab = ValueNotifier(0);
@@ -16,6 +21,7 @@ class App {
   static final ValueNotifier<String> query = ValueNotifier('');
 }
 
+/* ======== النماذج ======== */
 class Channel {
   final String username;
   String title;
@@ -35,32 +41,61 @@ class Movie {
   final int date;
   late final String id, hay;
 
-  Movie({required this.channel, required this.msgId, required this.title,
-      required this.poster, required this.videoUrl, required this.description,
-      required this.genres, required this.quality, required this.size,
-      required this.duration, required this.date})
+  Movie(
+      {required this.channel,
+      required this.msgId,
+      required this.title,
+      required this.poster,
+      required this.videoUrl,
+      required this.description,
+      required this.genres,
+      required this.quality,
+      required this.size,
+      required this.duration,
+      required this.date})
       : id = '${channel}_$msgId' {
     hay = Search.norm('$title $description ${genres.join(' ')}');
   }
 
-  Map<String, dynamic> toJson() => {'channel': channel, 'msgId': msgId,
-      'title': title, 'poster': poster, 'videoUrl': videoUrl,
-      'description': description, 'genres': genres, 'quality': quality,
-      'size': size, 'duration': duration, 'date': date};
+  Map<String, dynamic> toJson() => {
+        'channel': channel,
+        'msgId': msgId,
+        'title': title,
+        'poster': poster,
+        'videoUrl': videoUrl,
+        'description': description,
+        'genres': genres,
+        'quality': quality,
+        'size': size,
+        'duration': duration,
+        'date': date
+      };
 
-  static Movie fromJson(Map m) => Movie(channel: m['channel'] ?? '',
-      msgId: m['msgId'] ?? 0, title: m['title'] ?? '', poster: m['poster'] ?? '',
-      videoUrl: m['videoUrl'] ?? '', description: m['description'] ?? '',
-      genres: List<String>.from(m['genres'] ?? []), quality: m['quality'] ?? '',
-      size: m['size'] ?? '', duration: m['duration'] ?? '', date: m['date'] ?? 0);
+  static Movie fromJson(Map m) => Movie(
+      channel: m['channel'] ?? '',
+      msgId: m['msgId'] ?? 0,
+      title: m['title'] ?? '',
+      poster: m['poster'] ?? '',
+      videoUrl: m['videoUrl'] ?? '',
+      description: m['description'] ?? '',
+      genres: List<String>.from(m['genres'] ?? []),
+      quality: m['quality'] ?? '',
+      size: m['size'] ?? '',
+      duration: m['duration'] ?? '',
+      date: m['date'] ?? 0);
 }
 
+/* ======== البحث الذكي ======== */
 class Search {
-  static String norm(String s) => s.toLowerCase()
+  static String norm(String s) => s
+      .toLowerCase()
       .replaceAll(RegExp(r'[\u064B-\u0652\u0640]'), '')
-      .replaceAll(RegExp(r'[أإآ]'), 'ا').replaceAll('ة', 'ه').replaceAll('ى', 'ي')
+      .replaceAll(RegExp(r'[أإآ]'), 'ا')
+      .replaceAll('ة', 'ه')
+      .replaceAll('ى', 'ي')
       .replaceAll(RegExp(r'[^0-9a-z\u0600-\u06FF\s]'), ' ')
-      .replaceAll(RegExp(r'\s+'), ' ').trim();
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
 
   static List<Movie> run(List<Movie> src, String q) {
     final nq = norm(q);
@@ -69,6 +104,7 @@ class Search {
   }
 }
 
+/* ======== قارئ القنوات (عبر سيرفرك) ======== */
 class Page {
   final List<Movie> movies;
   final int? before;
@@ -78,178 +114,68 @@ class Page {
 }
 
 class Tg {
-  static final Dio _dio = Dio(BaseOptions(headers: {
-    'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-    'Accept':
-        'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-    'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
-  }, receiveTimeout: const Duration(seconds: 20), followRedirects: true));
-
-  static String _jsStr(dynamic r) {
-    var s = r.toString();
-    if (s.startsWith('"') && s.endsWith('"')) {
-      try {
-        s = jsonDecode(s) as String;
-      } catch (_) {
-        s = s
-            .substring(1, s.length - 1)
-            .replaceAll(r'\"', '"')
-            .replaceAll(r'\/', '/')
-            .replaceAll(r'\n', '\n');
-      }
-    }
-    return s;
-  }
-
-  static Future<String> _webviewHtml(String url) async {
-    String result = '';
-    var clicked = false;
-    final completer = Completer<void>();
-    final headless = HeadlessInAppWebView(
-      initialUrlRequest: URLRequest(url: WebUri(url)),
-      initialSettings: InAppWebViewSettings(
-        javaScriptEnabled: true,
-        userAgent:
-            'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36',
-      ),
-      onLoadStop: (controller, uri) async {
-        try {
-          await Future.delayed(const Duration(milliseconds: 1500));
-          var html = _jsStr(await controller.evaluateJavascript(
-              source: 'JSON.stringify(document.documentElement.outerHTML)'));
-          if (!clicked &&
-              !html.contains('data-post="') &&
-              (html.contains('Preview channel') ||
-                  html.contains('tgme_action_button'))) {
-            clicked = true;
-            await controller.evaluateJavascript(source:
-                "var b=[...document.querySelectorAll('a')].find(a=>/preview/i.test(a.textContent||''))||document.querySelector('a.tgme_action_button_new');if(b)b.click();");
-            await Future.delayed(const Duration(milliseconds: 3000));
-            html = _jsStr(await controller.evaluateJavascript(
-                source: 'JSON.stringify(document.documentElement.outerHTML)'));
-          }
-          result = html;
-        } catch (_) {}
-        if (!completer.isCompleted) completer.complete();
-      },
-    );
-    await headless.run();
-    try {
-      await completer.future.timeout(const Duration(seconds: 25));
-    } catch (_) {}
-    try {
-      await headless.dispose();
-    } catch (_) {}
-    return result;
-  }
-
-  static Future<String> _fetchHtml(String url) async {
-    try {
-      final s = (await _dio.get(url)).data.toString();
-      if (s.contains('data-post="')) return s;
-    } catch (_) {}
-    try {
-      final w = await _webviewHtml(url);
-      if (w.isNotEmpty) return w;
-    } catch (_) {}
-    return '';
-  }
-
-  static Future<String> raw(String user) => _fetchHtml('https://t.me/s/$user');
+  static final Dio _dio = Dio(BaseOptions(
+      receiveTimeout: const Duration(seconds: 30),
+      connectTimeout: const Duration(seconds: 10),
+      headers: {'Accept': 'application/json'}));
 
   static String cleanUser(String input) {
-    var s = input.trim()
+    var s = input
+        .trim()
         .replaceAll(RegExp(r'https?://(t\.me|telegram\.me)/'), '')
         .replaceFirst(RegExp(r'^[sS]/'), '');
     s = s.split('?').first.split('/').first;
     return s.replaceFirst('@', '');
   }
 
-  static String _un(String s) => s
-      .replaceAll('<br>', '\n').replaceAll('<br/>', '\n')
-      .replaceAll('&amp;', '&').replaceAll('&quot;', '"')
-      .replaceAll('&#39;', "'").replaceAll('&lt;', '<').replaceAll('&gt;', '>');
+  static String streamUrl(String user, int msgId) =>
+      '${ApiConfig.baseUrl}/stream/$user/$msgId?key=${ApiConfig.apiKey}';
 
-  static String _strip(String s) => _un(s).replaceAll(RegExp(r'<[^>]+>'), '');
-
+  /// جلب أفلام القناة من البوت على السيرفر
   static Future<Page> fetchPage(String user, {int? before}) async {
-    final html = await _fetchHtml(
-        'https://t.me/s/$user${before != null ? '?before=$before' : ''}');
-    final title = RegExp(r'<meta property="og:title" content="([^"]*)"')
-        .firstMatch(html)?.group(1);
-    final avatar = RegExp(r'<meta property="og:image" content="([^"]*)"')
-        .firstMatch(html)?.group(1);
-    final next = RegExp(r'before=(\d+)').firstMatch(html)?.group(1);
+    // السيرفر لا يدعم تقسيم صفحات؛ نرجع فارغ عند طلب صفحة تالية
+    if (before != null) return Page([], null, user, null);
+
+    final res = await _dio.get('${ApiConfig.baseUrl}/channel/$user',
+        queryParameters: {'key': ApiConfig.apiKey, 'limit': 200});
+
+    final data = res.data;
+    if (data is! Map) throw Exception('استجابة غير صالحة من الخادم');
+    if (data['error'] != null) throw Exception(data['error'].toString());
+
+    final title = (data['title'] ?? user).toString();
+    final avatar = data['avatar']?.toString();
 
     final movies = <Movie>[];
-    for (final part in html.split('data-post="').skip(1)) {
-      final head = RegExp(r'^([^/"]+)/(\d+)').firstMatch(part);
-      if (head == null) continue;
-      var video = RegExp(r'<video[^>]*src="([^"]+)"').firstMatch(part)?.group(1);
-      if (video == null || video.isEmpty) {
-        video = RegExp(r"<video[^>]*src='([^']+)'").firstMatch(part)?.group(1);
-      }
-      if (video == null || video.isEmpty) {
-        video = RegExp(r'<source[^>]*src="([^"]+)"').firstMatch(part)?.group(1);
-      }
-      if (video == null || video.isEmpty) {
-        video = RegExp(r'''https?://[^"'<>\s]+\.mp4[^"'<>\s]*''')
-            .firstMatch(part)?.group(0);
-      }
-      if (video == null || video.isEmpty) continue;
-      var poster =
-          RegExp(r"background-image:url\('([^']+)'").firstMatch(part)?.group(1) ?? '';
-      if (poster.startsWith('//')) poster = 'https:$poster';
-      var duration = RegExp(r'duration="([^"]+)"').firstMatch(part)?.group(1) ?? '';
-      if (duration.isEmpty) {
-        duration = RegExp(r'video_duration[^>]*>([^<]+)<')
-                .firstMatch(part)?.group(1)?.trim() ?? '';
-      }
-      final size =
-          RegExp(r'video_size[^>]*>([^<]+)<').firstMatch(part)?.group(1)?.trim() ?? '';
-      final cap = RegExp(r'message_text[^>]*>([\s\S]*?)</div>').firstMatch(part);
-      final dt = RegExp(r'datetime="([^"]+)"').firstMatch(part)?.group(1);
-      movies.add(_build(head.group(1)!, int.parse(head.group(2)!), poster, video,
-          cap == null ? '' : _strip(cap.group(1)!),
-          DateTime.tryParse(dt ?? '')?.millisecondsSinceEpoch ?? 0, duration, size));
+    for (final item in (data['messages'] as List? ?? [])) {
+      if (item is! Map) continue; // تجاهل أي صيغة قديمة (نصوص فقط)
+      if (item['has_video'] != true) continue;
+      final mid = (item['msg_id'] is num) ? (item['msg_id'] as num).toInt() : 0;
+      if (mid == 0) continue;
+      final caption = (item['text'] ?? '').toString();
+      final date =
+          ((item['date'] is num) ? (item['date'] as num).toInt() : 0) * 1000;
+      movies.add(_build(user, mid, '', streamUrl(user, mid), caption, date,
+          (item['duration'] ?? '').toString(), (item['size'] ?? '').toString()));
     }
-    return Page(movies, next == null ? null : int.parse(next),
-        title == null ? user : _un(title), avatar);
+    return Page(movies, null, title, avatar);
   }
 
-  static Future<List<Movie>> fetchNew(String user, {required int afterMsgId}) async {
-    final out = <Movie>[];
-    int? before;
-    while (true) {
-      final p = await fetchPage(user, before: before);
-      if (p.movies.isEmpty) break;
-      var stop = false;
-      for (final m in p.movies) {
-        if (m.msgId <= afterMsgId) {
-          stop = true;
-          break;
-        }
-        out.add(m);
-      }
-      if (stop || p.before == null) break;
-      before = p.before;
-      if (out.length > 5000) break;
-    }
-    return out;
-  }
-
+  /// تحليل العنوان/الجودة/التصنيفات من نص الرسالة
   static Movie _build(String ch, int mid, String poster, String video,
       String caption, int date, String dur, String size) {
-    final lines =
-        caption.split('\n').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+    final lines = caption
+        .split('\n')
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
     final title = lines.isNotEmpty ? lines.first : 'فيديو #$mid';
     var quality = '';
     var genres = <String>[];
     final desc = <String>[];
     for (final l in lines.skip(1)) {
-      final q =
-          RegExp(r'(2160p|1080p|720p|480p|4k)', caseSensitive: false).firstMatch(l);
+      final q = RegExp(r'(2160p|1080p|720p|480p|4k)', caseSensitive: false)
+          .firstMatch(l);
       if (q != null && quality.isEmpty) {
         quality = q.group(1)!.toUpperCase();
         continue;
@@ -264,54 +190,22 @@ class Tg {
       }
       desc.add(l);
     }
-    return Movie(channel: ch, msgId: mid, title: title, poster: poster,
-        videoUrl: video, description: desc.join('\n'), genres: genres,
-        quality: quality, size: size, duration: dur, date: date);
+    return Movie(
+        channel: ch,
+        msgId: mid,
+        title: title,
+        poster: poster,
+        videoUrl: video,
+        description: desc.join('\n'),
+        genres: genres,
+        quality: quality,
+        size: size,
+        duration: dur,
+        date: date);
   }
 }
 
-class Sync {
-  static bool _busy = false;
-  static Timer? _timer;
-  static final ValueNotifier<String> status = ValueNotifier('');
-
-  static void start() {
-    _timer ??= Timer.periodic(const Duration(hours: 2), (_) => checkAll());
-    Future.delayed(const Duration(seconds: 3), checkAll);
-  }
-
-  static Future checkAll() async {
-    if (_busy) return;
-    _busy = true;
-    for (final c in Store.channels()) {
-      status.value = 'التحقق من الجديد: ${c.title}';
-      try {
-        final fresh =
-            await Tg.fetchNew(c.username, afterMsgId: Store.maxId(c.username));
-        if (fresh.isNotEmpty) await Store.saveMovies(c.username, fresh);
-      } catch (_) {}
-    }
-    status.value = '';
-    _busy = false;
-    Store.tick.value++;
-  }
-
-  static Future loadAll(String user) async {
-    while (_busy) {
-      await Future.delayed(const Duration(seconds: 1));
-    }
-    _busy = true;
-    status.value = 'تحميل كل أفلام القناة…';
-    try {
-      final all = await Tg.fetchNew(user, afterMsgId: 0);
-      if (all.isNotEmpty) await Store.saveMovies(user, all);
-    } catch (_) {}
-    status.value = '';
-    _busy = false;
-    Store.tick.value++;
-  }
-}
-
+/* ======== التخزين + المزامنة ======== */
 class Store {
   static late Box _ch, _mv, _st;
   static final ValueNotifier<int> tick = ValueNotifier(0);
@@ -326,7 +220,8 @@ class Store {
   static Future setGuest(bool v) => _st.put('guest', v);
 
   static List<Channel> channels() => _ch.values
-      .map((e) => Channel.fromJson(Map<String, dynamic>.from(e))).toList();
+      .map((e) => Channel.fromJson(Map<String, dynamic>.from(e)))
+      .toList();
   static Future addChannel(Channel c) async {
     await _ch.put(c.username, c.toJson());
     tick.value++;
@@ -339,31 +234,17 @@ class Store {
   }
 
   static List<Movie> moviesOf(String u) => ((_mv.get(u) as List?) ?? [])
-      .map((e) => Movie.fromJson(Map<String, dynamic>.from(e))).toList();
-
-  static int maxId(String u) {
-    var m = 0;
-    for (final e in moviesOf(u)) {
-      if (e.msgId > m) m = e.msgId;
-    }
-    return m;
-  }
-
-  static Future saveMovies(String u, List<Movie> l) async {
-    final old = moviesOf(u);
-    final ids = old.map((e) => e.msgId).toSet();
-    final merged = [...old, ...l.where((e) => !ids.contains(e.msgId))];
-    merged.sort((a, b) => b.msgId.compareTo(a.msgId));
-    await _mv.put(u, merged.map((e) => e.toJson()).toList());
-    tick.value++;
-  }
-
+      .map((e) => Movie.fromJson(Map<String, dynamic>.from(e)))
+      .toList();
+  static Future saveMovies(String u, List<Movie> l) =>
+      _mv.put(u, l.map((e) => e.toJson()).toList());
   static List<Movie> all() => channels()
       .expand((c) => moviesOf(c.username)).toList()
         ..sort((a, b) => b.date.compareTo(a.date));
 
   static List<Movie> history() => ((_st.get('history') as List?) ?? [])
-      .map((e) => Movie.fromJson(Map<String, dynamic>.from(e))).toList();
+      .map((e) => Movie.fromJson(Map<String, dynamic>.from(e)))
+      .toList();
   static Future markWatched(Movie m) async {
     final h = history()..removeWhere((e) => e.id == m.id);
     h.insert(0, m);
@@ -424,6 +305,7 @@ class Store {
   }
 }
 
+/* ======== التحميلات ======== */
 class Downloader {
   static final Dio _dio = Dio();
   static final Map<String, CancelToken> _tasks = {};
@@ -445,10 +327,11 @@ class Downloader {
     try {
       final name = m.title.replaceAll(RegExp(r'[^\w\u0600-\u06FF\- ]'), '').trim();
       final path = '${await _dir()}/$name.mp4';
-      await _dio.download(m.videoUrl, path, cancelToken: token,
+      await _dio.download(m.videoUrl, path,
+          cancelToken: token,
           onReceiveProgress: (a, b) {
-        if (b > 0) progress.value = {...progress.value, m.id: a / b};
-      });
+            if (b > 0) progress.value = {...progress.value, m.id: a / b};
+          });
       await Store.addDownload(m, path);
     } catch (_) {}
     _tasks.remove(m.id);
