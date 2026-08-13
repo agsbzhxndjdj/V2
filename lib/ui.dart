@@ -12,7 +12,6 @@ String fmtDate(int ms) {
   return '${d.day}/${d.month}/${d.year}';
 }
 
-/* ======== الهيكل الرئيسي + التبويبات ======== */
 class HomeShell extends StatelessWidget {
   const HomeShell({super.key});
   @override
@@ -35,7 +34,6 @@ class HomeShell extends StatelessWidget {
           ));
 }
 
-/* ======== الرئيسية ======== */
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
   @override
@@ -49,8 +47,7 @@ class _HomePageState extends State<HomePage> {
   final Map<String, int?> _cursor = {};
   final Set<String> _done = {};
 
-  List<Movie> get _source =>
-      App.scope.value == 'all' ? Store.all() : Store.moviesOf(App.scope.value);
+  List<Movie> get _source => App.scope.value == 'all' ? Store.all() : Store.moviesOf(App.scope.value);
 
   @override
   void initState() {
@@ -85,8 +82,7 @@ class _HomePageState extends State<HomePage> {
         final p = await Tg.fetchPage(c.username);
         final old = Store.moviesOf(c.username);
         final ids = p.movies.map((e) => e.msgId).toSet();
-        await Store.saveMovies(c.username,
-            [...p.movies, ...old.where((e) => !ids.contains(e.msgId))]);
+        await Store.saveMovies(c.username, [...p.movies, ...old.where((e) => !ids.contains(e.msgId))]);
         _cursor[c.username] = p.before;
         if (p.before == null) _done.add(c.username);
       } catch (_) {}
@@ -97,9 +93,7 @@ class _HomePageState extends State<HomePage> {
   Future _loadMore() async {
     if (_more) return;
     setState(() => _more = true);
-    final chs = App.scope.value == 'all'
-        ? Store.channels()
-        : Store.channels().where((c) => c.username == App.scope.value).toList();
+    final chs = App.scope.value == 'all' ? Store.channels() : Store.channels().where((c) => c.username == App.scope.value).toList();
     await Future.wait(chs.map((c) async {
       if (_done.contains(c.username)) return;
       try {
@@ -107,8 +101,7 @@ class _HomePageState extends State<HomePage> {
         if (p.movies.isEmpty || p.before == null) _done.add(c.username);
         final old = Store.moviesOf(c.username);
         final ids = old.map((e) => e.msgId).toSet();
-        await Store.saveMovies(c.username,
-            [...old, ...p.movies.where((e) => !ids.contains(e.msgId))]);
+        await Store.saveMovies(c.username, [...old, ...p.movies.where((e) => !ids.contains(e.msgId))]);
         _cursor[c.username] = p.before;
       } catch (_) {}
     }));
@@ -122,8 +115,7 @@ class _HomePageState extends State<HomePage> {
         count[g] = (count[g] ?? 0) + 1;
       }
     }
-    return (count.entries.toList()..sort((a, b) => b.value.compareTo(a.value)))
-        .take(12).map((e) => e.key).toList();
+    return (count.entries.toList()..sort((a, b) => b.value.compareTo(a.value))).take(12).map((e) => e.key).toList();
   }
 
   @override
@@ -144,9 +136,7 @@ class _HomePageState extends State<HomePage> {
               const SizedBox(height: 12),
               const Text('أضف قناتك الأولى لتبدأ', style: TextStyle(color: Colors.grey)),
               const SizedBox(height: 12),
-              FilledButton.icon(
-                  onPressed: () => App.tab.value = 3,
-                  icon: const Icon(Icons.add), label: const Text('إضافة قناة')),
+              FilledButton.icon(onPressed: () => App.tab.value = 3, icon: const Icon(Icons.add), label: const Text('إضافة قناة')),
             ]))
           : RefreshIndicator(
               onRefresh: _refresh,
@@ -160,9 +150,7 @@ class _HomePageState extends State<HomePage> {
                       hintText: 'ابحث باسم الفيلم أو التصنيف أو أي كلمة من الوصف…',
                       hintStyle: const TextStyle(fontSize: 13),
                       prefixIcon: const Icon(Icons.search, size: 20),
-                      suffixIcon: _search.text.isEmpty ? null :
-                          IconButton(icon: const Icon(Icons.clear, size: 18),
-                              onPressed: () { App.query.value = ''; _search.clear(); setState(() {}); }),
+                      suffixIcon: _search.text.isEmpty ? null : IconButton(icon: const Icon(Icons.clear, size: 18), onPressed: () { App.query.value = ''; _search.clear(); setState(() {}); }),
                       filled: true, fillColor: const Color(0xFF151B23),
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
                     ),
@@ -174,35 +162,24 @@ class _HomePageState extends State<HomePage> {
                     child: ListView(padding: const EdgeInsets.symmetric(horizontal: 12),
                       scrollDirection: Axis.horizontal, children: [
                         _chip('الكل', scope == 'all', () => App.scope.value = 'all'),
-                        ...Store.channels().map((c) =>
-                            _chip(c.title.isEmpty ? c.username : c.title, scope == c.username,
-                                () => App.scope.value = c.username)),
+                        ...Store.channels().map((c) => _chip(c.title.isEmpty ? c.username : c.title, scope == c.username, () => App.scope.value = c.username)),
                       ])),
                 )),
                 if (genres.isNotEmpty)
                   SliverToBoxAdapter(child: SizedBox(height: 40,
                     child: ListView(padding: const EdgeInsets.symmetric(horizontal: 12),
-                      scrollDirection: Axis.horizontal, children: genres
-                          .map((g) => _chip(g, _search.text == g, () {
-                                App.query.value = _search.text == g ? '' : g;
-                                _syncQuery();
-                              }, small: true)).toList()))),
+                      scrollDirection: Axis.horizontal, children: genres.map((g) => _chip(g, _search.text == g, () {
+                            App.query.value = _search.text == g ? '' : g;
+                            _syncQuery();
+                          }, small: true)).toList()))),
                 SliverPadding(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   sliver: SliverGrid(
-                    delegate: SliverChildBuilderDelegate(
-                        (_, i) => MovieCard(m: movies[i]), childCount: movies.length),
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 3, childAspectRatio: 0.58,
-                        mainAxisSpacing: 8, crossAxisSpacing: 8),
+                    delegate: SliverChildBuilderDelegate((_, i) => MovieCard(m: movies[i]), childCount: movies.length),
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, childAspectRatio: 0.58, mainAxisSpacing: 8, crossAxisSpacing: 8),
                   ),
                 ),
-                SliverToBoxAdapter(child: Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: Center(child: _more
-                        ? const CircularProgressIndicator(strokeWidth: 2)
-                        : TextButton(onPressed: _loadMore,
-                            child: const Text('تحميل المزيد من الأفلام'))))),
+                SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.all(14), child: Center(child: _more ? const CircularProgressIndicator(strokeWidth: 2) : TextButton(onPressed: _loadMore, child: const Text('تحميل المزيد من الأفلام'))))),
               ])),
       floatingActionButton: _busy ? const CircularProgressIndicator() : null,
     );
@@ -210,12 +187,8 @@ class _HomePageState extends State<HomePage> {
 
   Widget _chip(String t, bool sel, VoidCallback on, {bool small = false}) => Padding(
       padding: EdgeInsets.only(right: small ? 6 : 8),
-      child: FilterChip(
-          label: Text(t, style: TextStyle(fontSize: small ? 11 : 13)),
-          selected: sel, onSelected: (_) => on()));
+      child: FilterChip(label: Text(t, style: TextStyle(fontSize: small ? 11 : 13)), selected: sel, onSelected: (_) => on()));
 }
-
-/* ======== بطاقة فيلم ======== */
 class MovieCard extends StatelessWidget {
   final Movie m;
   const MovieCard({super.key, required this.m});
@@ -224,150 +197,19 @@ class MovieCard extends StatelessWidget {
     final dl = Store.downloads().containsKey(m.id);
     final watched = Store.history().any((e) => e.id == m.id);
     return GestureDetector(
-      onTap: () => Navigator.push(context,
-          MaterialPageRoute(builder: (_) => DetailScreen(m: m))),
+      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => DetailScreen(m: m))),
       child: ClipRRect(borderRadius: BorderRadius.circular(12),
         child: Stack(fit: StackFit.expand, children: [
           m.poster.isNotEmpty
-              ? CachedNetworkImage(imageUrl: m.poster, fit: BoxFit.cover, memCacheWidth: 300,
-                  placeholder: (_, __) => Container(color: const Color(0xFF151B23)),
-                  errorWidget: (_, __, ___) => _ph())
+              ? CachedNetworkImage(imageUrl: m.poster, fit: BoxFit.cover, memCacheWidth: 300, placeholder: (_, __) => Container(color: const Color(0xFF151B23)), errorWidget: (_, __, ___) => _ph())
               : _ph(),
-          Container(decoration: BoxDecoration(gradient: LinearGradient(
-              begin: Alignment.topCenter, end: Alignment.bottomCenter,
-              colors: [Colors.transparent, Colors.black.withOpacity(.88)]))),
+          Container(decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Colors.transparent, Colors.black.withOpacity(.88)]))),
           Positioned(top: 4, left: 4, child: Row(children: [
             if (watched) const Icon(Icons.check_circle, size: 15, color: Colors.green),
             if (dl) const Icon(Icons.download_done, size: 15, color: Colors.amber),
           ])),
           if (m.quality.isNotEmpty)
-            Positioned(top: 4, right: 4, child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                decoration: BoxDecoration(color: Colors.amber, borderRadius: BorderRadius.circular(4)),
-                child: Text(m.quality, style: const TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Colors.black)))),
-          Positioned(bottom: 6, left: 6, right: 6, child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(m.title, maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-            if (m.size.isNotEmpty)
-              Text(m.size, style: TextStyle(fontSize: 9, color: Colors.grey.shade400)),
-          ])),
-        ])),
-    );
-  }
-
-  Widget _ph() => Container(color: const Color(0xFF151B23),
-      child: const Icon(Icons.movie_outlined, size: 40, color: Colors.grey));
-/* ======== شاشة التفاصيل ======== */
-class DetailScreen extends StatelessWidget {
-  final Movie m;
-  const DetailScreen({super.key, required this.m});
-
-  @override
-  Widget build(BuildContext context) {
-    final dl = Store.downloads()[m.id];
-    return Scaffold(
-      body: CustomScrollView(slivers: [
-        SliverAppBar(
-          expandedHeight: 280, pinned: true, stretch: true,
-          title: Text(m.title, style: const TextStyle(fontSize: 14)),
-          flexibleSpace: FlexibleSpaceBar(background: Stack(fit: StackFit.expand, children: [
-            m.poster.isNotEmpty
-                ? CachedNetworkImage(imageUrl: m.poster, fit: BoxFit.cover,
-                    errorWidget: (_, __, ___) => const SizedBox())
-                : const SizedBox(),
-            Container(color: Colors.black.withOpacity(.45)),
-            Container(decoration: BoxDecoration(gradient: LinearGradient(
-                begin: Alignment.topCenter, end: Alignment.bottomCenter,
-                colors: [Colors.transparent, const Color(0xFF0B0F14)]))),
-          ])),
-        ),
-        SliverToBoxAdapter(child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Hero(tag: m.id, child: ClipRRect(borderRadius: BorderRadius.circular(12),
-                  child: CachedNetworkImage(imageUrl: m.poster, width: 130, height: 190,
-                      fit: BoxFit.cover, errorWidget: (_, __, ___) =>
-                          Container(width: 130, height: 190, color: const Color(0xFF151B23),
-                              child: const Icon(Icons.movie, size: 40, color: Colors.grey)))))),
-              const SizedBox(width: 16),
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(m.title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 10),
-                Wrap(spacing: 8, runSpacing: 6, children: [
-                  if (m.quality.isNotEmpty) _meta(Icons.hd, m.quality),
-                  if (m.duration.isNotEmpty) _meta(Icons.schedule, m.duration),
-                  if (m.size.isNotEmpty) _meta(Icons.sd_storage, m.size),
-                  if (m.date != 0) _meta(Icons.calendar_month, fmtDate(m.date)),
-                ]),
-                const SizedBox(height: 12),
-                Wrap(spacing: 6, runSpacing: 6, children: m.genres
-                    .map((g) => ActionChip(
-                        visualDensity: VisualDensity.compact,
-                        label: Text(g, style: const TextStyle(fontSize: 11)),
-                        onPressed: () {
-                          App.query.value = g;
-                          App.tab.value = 0;
-                          Navigator.popUntil(context, (r) => r.isFirst);
-                        }))
-                    .toList()),
-              ])),
-            ]),
-            const SizedBox(height: 20),
-            if (m.description.isNotEmpty) ...[
-              const Text('القصة', style: TextStyle(color: Colors.amber, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 6),
-              Text(m.description, style: TextStyle(height: 1.8, color: Colors.grey.shade300, fontSize: 13.5)),
-              const SizedBox(height: 20),
-            ],
-            Row(children: [
-              Expanded(child: FilledButton.icon(
-                  onPressed: () => Navigator.push(context, MaterialPageRoute(
-                      builder: (_) => PlayerScreen(m: m))),
-                  icon: const Icon(Icons.play_arrow), label: const Text('مشاهدة'))),
-              const SizedBox(width: 10),
-              if (dl != null)
-                Expanded(child: OutlinedButton.icon(
-                    onPressed: () => Navigator.push(context, MaterialPageRoute(
-                        builder: (_) => PlayerScreen(m: m, path: dl['path']))),
-                    icon: const Icon(Icons.folder_open), label: const Text('من الجهاز'))),
-              const SizedBox(width: 10),
-              ValueListenableBuilder<Map<String, double>>(
-                valueListenable: Downloader.progress,
-                builder: (_, pr, __) {
-                  if (pr.containsKey(m.id)) {
-                    return SizedBox(width: 52, height: 52, child: Stack(
-                        alignment: Alignment.center, children: [
-                      CircularProgressIndicator(value: pr[m.id], strokeWidth: 3),
-                      IconButton(icon: const Icon(Icons.close, size: 18),
-                          onPressed: () => Downloader.cancel(m.id)),
-                    ]));
-                  }
-                  return IconButton.filledTonal(
-                      onPressed: dl != null ? null : () {
-                            Downloader.start(m);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('بدأ التحميل — تابعه من تبويب تحميلاتي')));
-                          },
-                      icon: Icon(dl != null ? Icons.download_done : Icons.download));
-                }),
-            ]),
-            const SizedBox(height: 24),
-          ]),
-        )),
-      ]),
-    );
-  }
-
-  Widget _meta(IconData i, String t) => Chip(
-      visualDensity: VisualDensity.compact,
-      avatar: Icon(i, size: 14, color: Colors.amber),
-      label: Text(t, style: const TextStyle(fontSize: 11)));
-}
-
-/* ======== المشغل ======== */
-class PlayerScreen extends StatefulWidget {
+            Positioned(top: 4, right: 4, child: Container(padding: const EdgeInsets.symmetric(horizontal: 5, vertical:class PlayerScreen extends StatefulWidget {
   final Movie m;
   final String? path;
   const PlayerScreen({super.key, required this.m, this.path});
@@ -388,16 +230,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Future _init() async {
     try {
-      final v = widget.path != null
-          ? VideoPlayerController.file(File(widget.path!))
-          : VideoPlayerController.networkUrl(Uri.parse(widget.m.videoUrl));
+      final v = widget.path != null ? VideoPlayerController.file(File(widget.path!)) : VideoPlayerController.networkUrl(Uri.parse(widget.m.videoUrl));
       await v.initialize();
       Store.markWatched(widget.m);
       _v = v;
-      setState(() => _c = ChewieController(
-          videoPlayerController: v,
-          aspectRatio: v.value.aspectRatio == 0 ? 16 / 9 : v.value.aspectRatio,
-          allowFullScreen: true));
+      setState(() => _c = ChewieController(videoPlayerController: v, aspectRatio: v.value.aspectRatio == 0 ? 16 / 9 : v.value.aspectRatio, allowFullScreen: true));
     } catch (_) {
       setState(() => _err = true);
     }
@@ -413,15 +250,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   Widget build(BuildContext context) => Scaffold(
       appBar: AppBar(title: Text(widget.m.title, style: const TextStyle(fontSize: 14))),
-      body: _err
-          ? const Center(child: Text('تعذر التشغيل — جرّب التحديث أو التحميل أولاً',
-              style: TextStyle(color: Colors.grey)))
-          : _c == null
-              ? const Center(child: CircularProgressIndicator())
-              : Center(child: Chewie(controller: _c!)));
+      body: _err ? const Center(child: Text('تعذر التشغيل — جرّب التحديث أو التحميل أولاً', style: TextStyle(color: Colors.grey))) : _c == null ? const Center(child: CircularProgressIndicator()) : Center(child: Chewie(controller: _c!)));
 }
 
-/* ======== سجل المشاهدة ======== */
 class HistoryPage extends StatelessWidget {
   const HistoryPage({super.key});
   @override
@@ -431,35 +262,23 @@ class HistoryPage extends StatelessWidget {
         final h = Store.history();
         return Scaffold(
           appBar: AppBar(title: const Text('شاهدتها'), actions: [
-            if (h.isNotEmpty)
-              IconButton(icon: const Icon(Icons.delete_sweep), onPressed: () async {
-                for (final m in List.of(h)) {
-                  await Store.markWatchedRemove(m.id);
-                }
-              }),
+            if (h.isNotEmpty) IconButton(icon: const Icon(Icons.delete_sweep), onPressed: () async { for (final m in List.of(h)) { await Store.markWatchedRemove(m.id); } }),
           ]),
           body: h.isEmpty
               ? const Center(child: Text('لم تشاهد شيئًا بعد', style: TextStyle(color: Colors.grey)))
               : ListView.builder(
                   itemCount: h.length,
                   itemBuilder: (_, i) => ListTile(
-                    leading: ClipRRect(borderRadius: BorderRadius.circular(8),
-                        child: CachedNetworkImage(imageUrl: h[i].poster,
-                            width: 52, height: 74, fit: BoxFit.cover,
-                            errorWidget: (_, __, ___) => Container(width: 52,
-                                color: const Color(0xFF151B23),
-                                child: const Icon(Icons.movie, size: 22, color: Colors.grey)))),
+                    leading: ClipRRect(borderRadius: BorderRadius.circular(8), child: CachedNetworkImage(imageUrl: h[i].poster, width: 52, height: 74, fit: BoxFit.cover, errorWidget: (_, __, ___) => Container(width: 52, color: const Color(0xFF151B23), child: const Icon(Icons.movie, size: 22, color: Colors.grey)))),
                     title: Text(h[i].title, style: const TextStyle(fontSize: 13)),
                     subtitle: Text(fmtDate(h[i].date), style: const TextStyle(fontSize: 10)),
                     trailing: const Icon(Icons.chevron_left, color: Colors.grey),
-                    onTap: () => Navigator.push(context, MaterialPageRoute(
-                        builder: (_) => DetailScreen(m: h[i]))),
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => DetailScreen(m: h[i]))),
                   )),
         );
       });
 }
 
-/* ======== التحميلات ======== */
 class DownloadsPage extends StatelessWidget {
   const DownloadsPage({super.key});
   @override
@@ -475,43 +294,27 @@ class DownloadsPage extends StatelessWidget {
               body: done.isEmpty && active.isEmpty
                   ? const Center(child: Text('لا تحميلات بعد', style: TextStyle(color: Colors.grey)))
                   : ListView(children: [
-                    ...active.map((id) => ListTile(
-                        leading: const CircularProgressIndicator(strokeWidth: 2),
-                        title: Text('جارٍ التحميل… ${(pr[id]! * 100).toStringAsFixed(0)}%',
-                            style: const TextStyle(fontSize: 13)),
-                        trailing: IconButton(icon: const Icon(Icons.close),
-                            onPressed: () => Downloader.cancel(id)))),
-                    ...done.values.map((e) {
-                      final m = Movie.fromJson(Map<String, dynamic>.from(e));
-                      return ListTile(
-                        leading: ClipRRect(borderRadius: BorderRadius.circular(8),
-                            child: CachedNetworkImage(imageUrl: m.poster,
-                                width: 52, height: 74, fit: BoxFit.cover,
-                                errorWidget: (_, __, ___) => Container(width: 52,
-                                    color: const Color(0xFF151B23),
-                                    child: const Icon(Icons.movie, size: 22, color: Colors.grey)))),
-                        title: Text(m.title, style: const TextStyle(fontSize: 13)),
-                        subtitle: Text(m.size, style: const TextStyle(fontSize: 10)),
-                        trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                          IconButton(icon: const Icon(Icons.play_arrow, color: Colors.amber),
-                              onPressed: () => Navigator.push(context, MaterialPageRoute(
-                                  builder: (_) => PlayerScreen(m: m, path: e['path'])))),
-                          IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red),
-                              onPressed: () async {
-                                await Downloader.deleteFile(e['path']);
-                                await Store.delDownload(m.id);
-                              }),
-                        ]),
-                        onTap: () => Navigator.push(context, MaterialPageRoute(
-                            builder: (_) => DetailScreen(m: m))));
-                    }),
-                  ]),
+                      ...active.map((id) => ListTile(
+                          leading: const CircularProgressIndicator(strokeWidth: 2),
+                          title: Text('جارٍ التحميل… ${(pr[id]! * 100).toStringAsFixed(0)}%', style: const TextStyle(fontSize: 13)),
+                          trailing: IconButton(icon: const Icon(Icons.close), onPressed: () => Downloader.cancel(id)))),
+                      ...done.values.map((e) {
+                        final m = Movie.fromJson(Map<String, dynamic>.from(e));
+                        return ListTile(
+                          leading: ClipRRect(borderRadius: BorderRadius.circular(8), child: CachedNetworkImage(imageUrl: m.poster, width: 52, height: 74, fit: BoxFit.cover, errorWidget: (_, __, ___) => Container(width: 52, color: const Color(0xFF151B23), child: const Icon(Icons.movie, size: 22, color: Colors.grey)))),
+                          title: Text(m.title, style: const TextStyle(fontSize: 13)),
+                          subtitle: Text(m.size, style: const TextStyle(fontSize: 10)),
+                          trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                            IconButton(icon: const Icon(Icons.play_arrow, color: Colors.amber), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PlayerScreen(m: m, path: e['path'])))),
+                            IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red), onPressed: () async { await Downloader.deleteFile(e['path']); await Store.delDownload(m.id); }),
+                          ]),
+                          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => DetailScreen(m: m))));
+                      }),
+                    ]),
             );
           }));
 }
-
-/* ======== القنوات ======== */
-class ChannelsPage extends StatefulWidget {
+ class ChannelsPage extends StatefulWidget {
   const ChannelsPage({super.key});
   @override
   State<ChannelsPage> createState() => _ChannelsPageState();
@@ -534,10 +337,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
       App.scope.value = u;
       App.tab.value = 0;
     } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('تعذر العثور عليها — تأكد أنها قناة عامة ولها يوزر')));
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تعذر العثور عليها — تأكد أنها قناة عامة ولها يوزر')));
     }
     if (mounted) setState(() => _busy = false);
   }
@@ -552,36 +352,24 @@ class _ChannelsPageState extends State<ChannelsPage> {
             decoration: InputDecoration(
               hintText: 'الصق رابط القناة أو @اليوزر أو المعرف…',
               prefixIcon: const Icon(Icons.add_link),
-              suffixIcon: _busy
-                  ? const Padding(padding: EdgeInsets.all(12),
-                      child: CircularProgressIndicator(strokeWidth: 2))
-                  : IconButton(icon: const Icon(Icons.add_circle, color: Colors.amber),
-                      onPressed: _add),
+              suffixIcon: _busy ? const Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator(strokeWidth: 2)) : IconButton(icon: const Icon(Icons.add_circle, color: Colors.amber), onPressed: _add),
               filled: true, fillColor: const Color(0xFF151B23),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide.none)),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none)),
           const SizedBox(height: 16),
           ListTile(
             dense: true,
             leading: const CircleAvatar(child: Icon(Icons.video_library)),
             title: const Text('الكل — جميع القنوات', style: TextStyle(fontSize: 14)),
-            trailing: App.scope.value == 'all'
-                ? const Icon(Icons.check_circle, color: Colors.amber, size: 18) : null,
+            trailing: App.scope.value == 'all' ? const Icon(Icons.check_circle, color: Colors.amber, size: 18) : null,
             onTap: () { App.scope.value = 'all'; App.tab.value = 0; }),
           const Divider(),
           ...Store.channels().map((c) => ListTile(
-                leading: CircleAvatar(
-                    backgroundImage: c.avatar != null ? NetworkImage(c.avatar!) : null,
-                    child: c.avatar == null ? const Icon(Icons.rss_feed) : null),
-                title: Text(c.title.isEmpty ? c.username : c.title,
-                    style: const TextStyle(fontSize: 14)),
-                subtitle: Text('@${c.username} • ${Store.moviesOf(c.username).length} فيلم',
-                    style: const TextStyle(fontSize: 11)),
+                leading: CircleAvatar(backgroundImage: c.avatar != null ? NetworkImage(c.avatar!) : null, child: c.avatar == null ? const Icon(Icons.rss_feed) : null),
+                title: Text(c.title.isEmpty ? c.username : c.title, style: const TextStyle(fontSize: 14)),
+                subtitle: Text('@${c.username} • ${Store.moviesOf(c.username).length} فيلم', style: const TextStyle(fontSize: 11)),
                 trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                  if (App.scope.value == c.username)
-                    const Icon(Icons.check_circle, color: Colors.amber, size: 18),
-                  IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
-                      onPressed: () => Store.delChannel(c.username)),
+                  if (App.scope.value == c.username) const Icon(Icons.check_circle, color: Colors.amber, size: 18),
+                  IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20), onPressed: () => Store.delChannel(c.username)),
                 ]),
                 onTap: () { App.scope.value = c.username; App.tab.value = 0; },
               )),
@@ -589,7 +377,6 @@ class _ChannelsPageState extends State<ChannelsPage> {
       ));
 }
 
-/* ======== الحساب ======== */
 class AccountMenu extends StatelessWidget {
   const AccountMenu({super.key});
   @override
@@ -598,25 +385,15 @@ class AccountMenu extends StatelessWidget {
     return IconButton(
         icon: Icon(u != null ? Icons.manage_accounts : Icons.login_outlined),
         onPressed: () {
-          if (u == null) {
-            Navigator.push(context, MaterialPageRoute(builder: (_) => const LoginScreen()));
-            return;
-          }
-          showModalBottomSheet(context: context, builder: (_) => SafeArea(
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-            ListTile(
-                leading: CircleAvatar(child: Text(u.displayName?.isNotEmpty == true
-                    ? u.displayName![0] : 'ح')),
-                title: Text(u.displayName ?? ''), subtitle: Text(u.email ?? '')),
-            ListTile(
-                leading: const Icon(Icons.logout, color: Colors.red),
-                title: const Text('تسجيل الخروج'),
-                onTap: () async {
-                  await FirebaseAuth.instance.signOut();
-                  await Store.setGuest(true);
-                  App.tick.value++;
-                  if (context.mounted) Navigator.pop(context);
-                }),
+          if (u == null) { Navigator.push(context, MaterialPageRoute(builder: (_) => const LoginScreen())); return; }
+          showModalBottomSheet(context: context, builder: (_) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
+            ListTile(leading: CircleAvatar(child: Text(u.displayName?.isNotEmpty == true ? u.displayName![0] : 'ح')), title: Text(u.displayName ?? ''), subtitle: Text(u.email ?? '')),
+            ListTile(leading: const Icon(Icons.logout, color: Colors.red), title: const Text('تسجيل الخروج'), onTap: () async {
+              await FirebaseAuth.instance.signOut();
+              await Store.setGuest(true);
+              App.tick.value++;
+              if (context.mounted) Navigator.pop(context);
+            }),
           ])));
         });
   }
@@ -630,47 +407,24 @@ class LoginScreen extends StatelessWidget {
       final acc = await GoogleSignIn().signIn();
       if (acc == null) return;
       final a = await acc.authentication;
-      await FirebaseAuth.instance.signInWithCredential(GoogleAuthProvider.credential(
-          idToken: a.idToken, accessToken: a.accessToken));
+      await FirebaseAuth.instance.signInWithCredential(GoogleAuthProvider.credential(idToken: a.idToken, accessToken: a.accessToken));
       await Store.sync();
     } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('خطأ: $e')));
-      }
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('خطأ: $e')));
     }
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(
       body: Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
-    Container(
-        padding: const EdgeInsets.all(22),
-        decoration: BoxDecoration(color: const Color(0xFF151B23),
-            borderRadius: BorderRadius.circular(28)),
-        child: const Icon(Icons.movie_filter, size: 70, color: Colors.amber)),
+    Container(padding: const EdgeInsets.all(22), decoration: BoxDecoration(color: const Color(0xFF151B23), borderRadius: BorderRadius.circular(28)), child: const Icon(Icons.movie_filter, size: 70, color: Colors.amber)),
     const SizedBox(height: 18),
-    const Text('تلي سينما',
-        style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold, color: Colors.amber)),
+    const Text('تلي سينما', style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold, color: Colors.amber)),
     const SizedBox(height: 6),
-    Text('أفلام قنواتك العامة… بواجهة تليق بها',
-        style: TextStyle(color: Colors.grey.shade400, fontSize: 13)),
+    Text('أفلام قنواتك العامة… بواجهة تليق بها', style: TextStyle(color: Colors.grey.shade400, fontSize: 13)),
     const SizedBox(height: 40),
-    Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 40),
-        child: FilledButton.icon(
-            onPressed: () => _google(context),
-            icon: const Icon(Icons.g_mobiledata, size: 28),
-            label: const Text('تسجيل الدخول عبر Google'),
-            style: FilledButton.styleFrom(
-                minimumSize: const Size.fromHeight(52),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)))),
-    ),
+    Padding(padding: const EdgeInsets.symmetric(horizontal: 40), child: FilledButton.icon(onPressed: () => _google(context), icon: const Icon(Icons.g_mobiledata, size: 28), label: const Text('تسجيل الدخول عبر Google'), style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)))),
     const SizedBox(height: 8),
-    TextButton(
-        onPressed: () async {
-          await Store.setGuest(true);
-          App.tick.value++;
-        },
-        child: const Text('المتابعة كضيف')),
+    TextButton(onPressed: () async { await Store.setGuest(true); App.tick.value++; }, child: const Text('المتابعة كضيف')),
   ])));
-}
+        }                                                                                             
