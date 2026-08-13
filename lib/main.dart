@@ -27,22 +27,6 @@ class TeleCinema extends StatelessWidget {
           scaffoldBackgroundColor: const Color(0xFF0B0F14),
           cardColor: const Color(0xFF151B23),
           colorScheme: const ColorScheme.dark(
-              primary: Color(0xFFE5B13D), secondary: Color(0xFFE50914)),
-        ),
-        home: ValueListenableBuilder<int>(
-            valueListenable: App.tick,
-            builder: (_, __, ___) => StreamBuilder<User?>(
-                stream: FirebaseAuth.instance.authStateChanges(),
-                builder: (ctx, snap) {
-                  if (snap.connectionState == ConnectionState.waiting) {
-                    return const Scaffold(
-                        body: Center(child: CircularProgressIndicator()));
-                  }
-                  if (snap.data != null) {
-                    Store.sync();
-                    return const HomeShell();
-                  }
-                  return Store.isGuest() ? const HomeShell() : const LoginScreen();
-                })),
+              home: const HomeShell(),
       );
 }
