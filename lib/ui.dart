@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -182,18 +181,11 @@ class MovieCard extends StatelessWidget {
           onTap: () => Navigator.push(context,
               MaterialPageRoute(builder: (_) => PlayerScreen(m: m))),
           child: Stack(fit: StackFit.expand, children: [
-            m.poster.isNotEmpty
-                ? CachedNetworkImage(
-                    imageUrl: m.poster,
-                    fit: BoxFit.cover,
-                    errorWidget: (_, __, ___) => const Center(
-                        child: Icon(Icons.movie_filter,
-                            size: 42, color: Colors.amber)))
-                : Container(
-                    color: const Color(0xFF1B2430),
-                    child: const Center(
-                        child: Icon(Icons.movie_filter,
-                            size: 42, color: Colors.amber))),
+            Container(
+                color: const Color(0xFF1B2430),
+                child: const Center(
+                    child: Icon(Icons.movie_filter,
+                        size: 42, color: Colors.amber))),
             Positioned(
                 left: 0,
                 right: 0,
@@ -230,7 +222,8 @@ class MovieCard extends StatelessWidget {
                   bottom: 30,
                   left: 6,
                   child: Text(m.duration,
-                      style: const TextStyle(fontSize: 9, color: Colors.white70))),
+                      style:
+                          const TextStyle(fontSize: 9, color: Colors.white70))),
             Positioned(
                 top: 4,
                 left: 4,
@@ -251,7 +244,7 @@ class MovieCard extends StatelessWidget {
       );
 }
 
-/* ======== المشغل (بث من السيرفر) ======== */
+/* ======== مشغل البث عبر السيرفر ======== */
 class PlayerScreen extends StatefulWidget {
   final Movie m;
   const PlayerScreen({super.key, required this.m});
@@ -304,7 +297,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         appBar: AppBar(title: Text(widget.m.title)),
         body: _err
             ? const Center(
-                child: Text('تعذر تشغيل الفيديو — جرّب التحديث لاحقاً',
+                child: Text('تعذر تشغيل الفيديو',
                     style: TextStyle(color: Colors.grey)))
             : _cc == null
                 ? const Center(child: CircularProgressIndicator())
@@ -312,7 +305,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       );
 }
 
-/* ======== مشغل الملفات المحلية ======== */
+/* ======== مشغل محلي ======== */
 class LocalPlayerScreen extends StatefulWidget {
   final String title, path;
   const LocalPlayerScreen({super.key, required this.title, required this.path});
@@ -363,8 +356,8 @@ class _LocalPlayerScreenState extends State<LocalPlayerScreen> {
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: Text(widget.title)),
         body: _err
-            ? const Center(
-                child: Text('الملف غير موجود', style: TextStyle(color: Colors.grey)))
+            ? const Center(child: Text('الملف غير موجود',
+                style: TextStyle(color: Colors.grey)))
             : _cc == null
                 ? const Center(child: CircularProgressIndicator())
                 : Center(child: Chewie(controller: _cc!)),
@@ -426,8 +419,8 @@ class DownloadsPage extends StatelessWidget {
                     separatorBuilder: (_, __) => const Divider(height: 1),
                     itemBuilder: (_, i) {
                       final e = items[i];
-                      final m = Movie.fromJson(
-                          Map<String, dynamic>.from(e.value));
+                      final m =
+                          Movie.fromJson(Map<String, dynamic>.from(e.value));
                       final path = e.value['path']?.toString() ?? '';
                       return ListTile(
                           leading: const CircleAvatar(
@@ -507,7 +500,8 @@ class _ChannelsPageState extends State<ChannelsPage> {
                       suffixIcon: _busy
                           ? const Padding(
                               padding: EdgeInsets.all(12),
-                              child: CircularProgressIndicator(strokeWidth: 2))
+                              child:
+                                  CircularProgressIndicator(strokeWidth: 2))
                           : IconButton(
                               icon: const Icon(Icons.add_circle,
                                   color: Colors.amber),
@@ -530,7 +524,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
                               fontSize: 24, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 10),
                       const Text(
-                          'أضف قناة أفلام من تيليجرام وستظهر جميع فيديوهاتها هنا بواجهة سينما',
+                          'أضف قناة أفلام من تيليجرام وستظهر جميع فيديوهاتها هنا',
                           textAlign: TextAlign.center,
                           style: TextStyle(color: Colors.grey)),
                       const SizedBox(height: 30),
@@ -572,17 +566,15 @@ class _ChannelsPageState extends State<ChannelsPage> {
                     subtitle: Text(
                         '@${c.username} • ${Store.moviesOf(c.username).length} فيلم',
                         style: const TextStyle(fontSize: 11)),
-                    trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (App.scope.value == c.username)
-                            const Icon(Icons.check_circle,
-                                color: Colors.amber, size: 18),
-                          IconButton(
-                              icon: const Icon(Icons.delete_outline,
-                                  color: Colors.red, size: 20),
-                              onPressed: () => Store.delChannel(c.username)),
-                        ]),
+                    trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                      if (App.scope.value == c.username)
+                        const Icon(Icons.check_circle,
+                            color: Colors.amber, size: 18),
+                      IconButton(
+                          icon: const Icon(Icons.delete_outline,
+                              color: Colors.red, size: 20),
+                          onPressed: () => Store.delChannel(c.username)),
+                    ]),
                     onTap: () {
                       App.scope.value = c.username;
                       App.tab.value = 0;
@@ -671,7 +663,7 @@ class LoginScreen extends StatelessWidget {
                 fontWeight: FontWeight.bold,
                 color: Colors.amber)),
         const SizedBox(height: 6),
-        Text('أفلام قنواتك… بواجهة تليق بها',
+        Text('أفلام قنواتك بواجهة تليق بها',
             style: TextStyle(color: Colors.grey.shade400, fontSize: 13)),
         const SizedBox(height: 40),
         Padding(
