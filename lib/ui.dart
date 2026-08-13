@@ -11,9 +11,12 @@ class HomeShell extends StatelessWidget {
   Widget build(BuildContext context) => ValueListenableBuilder<int>(
       valueListenable: App.tab,
       builder: (ctx, tab, _) => Scaffold(
-            body: const IndexedStack(children: [
-              HomePage(), HistoryPage(), DownloadsPage(), ChannelsPage()
-            ]),
+            body: IndexedStack(
+              index: tab,
+              children: const [
+                HomePage(), HistoryPage(), DownloadsPage(), ChannelsPage()
+              ],
+            ),
             bottomNavigationBar: NavigationBar(
               selectedIndex: tab,
               onDestinationSelected: (i) => App.tab.value = i,
