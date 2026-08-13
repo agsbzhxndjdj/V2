@@ -36,9 +36,10 @@ jobs:
           fi
           keytool -list -v -keystore android/app/debug.keystore -storepass android | grep SHA1 || true
 
-      - name: اسم التطبيق
+      - name: اسم التطبيق + السماح باتصال HTTP
         run: |
           sed -i 's/android:label="tele_cinema"/android:label="تلي سينما"/' android/app/src/main/AndroidManifest.xml
+          sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/>\n    <application\n        android:usesCleartextTraffic="true"|' android/app/src/main/AndroidManifest.xml
 
       - name: البناء
         run: |
