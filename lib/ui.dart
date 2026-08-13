@@ -464,8 +464,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   Widget build(BuildContext context) {
     final c = _c;
-    final dur = c?.value.isInitialized == true ? c.value.duration : Duration.zero;
-    final pos = c?.value.isInitialized == true ? c.value.position : Duration.zero;
+    final dur = c?.value.isInitialized == true ? c!.value.duration : Duration.zero;
+    final pos = c?.value.isInitialized == true ? c!.value.position : Duration.zero;
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(fit: StackFit.expand, children: [
