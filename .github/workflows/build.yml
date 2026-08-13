@@ -41,6 +41,29 @@ jobs:
           sed -i '/^plugins {/a\    id "com.google.gms.google-services" version "4.4.2"' android/app/build.gradle
           sed -i 's/android:label="tele_cinema"/android:label="تلي سينما"/' android/app/src/main/AndroidManifest.xml
 
+      - name: إعداد Gradle لتوافق الحزم الحديثة
+        run: |
+          FLUTTER_ROOT=$(flutter --no-version-check config --machine 2>/dev/null | grep -oE '"flutterRoot":"[^"]+"' | cut -d'"' -f4)
+          FLUTTER_ROOT=${FLUTTER_ROOT:-$FLUTTER_ROOT}
+          [ -z "$FLUTTER_ROOT" ] && FLUTTER_ROOT=$(which flutter | sed 's|/bin/flutter||')
+          echo "sdk.dir=$FLUTTER_ROOT" > android/local.properties
+          cat >> android/gradle.properties <<'EOF'
+          android.useAndroidX=true
+          android.enableJetifier=true
+          org.gradle.jvmargs=-Xmx4g
+          EOF
+          # تعريف flutter و تحديد compileSdk في ملف التطبيق
+          sed -i '1i def flutterRoot = localProperties.getProperty("flutter.sdk")' android/app/build.gradle
+          sed -i '1i apply from: "$flutterRoot/packages/flutter_tools/gradle/flutter.gradle"' android/app/build.gradle
+          sed -i 's/compileSdk flutter.compileSdkVersion/compileSdk 34/' android/app/build.gradle
+          sed -i 's/minSdk flutter.minSdkVersion/minSdk 21/' android/app/build.gradle
+          sed -i 's/targetSdk flutter.targetSdkVersion/targetSdk 34/' android/app/build.gradle
+          # ترقية Gradle وAGP لتوافق package_info_plus
+          sed -i "s|gradle/[0-9.]*-all|gradle/8.4-all|g" android/gradle/wrapper/gradle-wrapper.properties 2>/dev/null || true
+          sed -i "s/classpath 'com.android.tools.build:gradle:[^']*'/classpath 'com.android.tools.build:gradle:8.1.0'/g" android/build.gradle
+          sed -i 's|id "com.android.application" version "[^"]*"|id "com.android.application" version "8.1.0"|' android/settings.gradle 2>/dev/null || true
+          sed -i 's|id "org.jetbrains.kotlin.android" version "[^"]*"|id "org.jetbrains.kotlin.android" version "1.9.0"|' android/settings.gradle 2>/dev/null || true
+
       - name: البناء
         run: |
           flutter pub get
