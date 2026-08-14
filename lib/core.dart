@@ -324,6 +324,10 @@ class Downloader {
     final dir = Directory('${base!.path}/Movies');
     if (!await dir.exists()) await dir.create();
     return dir.path;
+    static Future deleteFile(String path) async {
+    final f = File(path);
+    if (await f.exists()) await f.delete();
+    }
   }
 
   static Future start(Movie m) async {
