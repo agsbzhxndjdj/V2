@@ -325,8 +325,8 @@ class _TvPlayerState extends State<TvPlayer> {
     _poke();
   }
 
-  KeyEventResult _onKey(FocusNode n, KeyEvent e) {
-    if (e is! KeyDownEvent) return KeyEventResult.handled;
+  KeyEventResult _onKey(FocusNode n, RawKeyEvent e) {
+    if (e is! RawKeyDownEvent) return KeyEventResult.handled;
     final k = e.logicalKey;
     if (k == LogicalKeyboardKey.goBack) return KeyEventResult.ignored;
     final c = _c;
