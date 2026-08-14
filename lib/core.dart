@@ -659,35 +659,72 @@ class Downloader {
   }
 }
 
-/* ======== TMDB (المفتاح مدمج — يعمل للجميع تلقائياً) ======== */
+/* ======== TMDB محسّن ======== */
 class Tmdb {
   static const String apiKey = '9ba4e29354937364c2202857afcd7f94';
   static final Dio _d = Dio(BaseOptions(
       connectTimeout: const Duration(seconds: 8),
       receiveTimeout: const Duration(seconds: 8)));
 
+  // ✨ تنظيف اسم الفيلم من التشويش قبل البحث
+  static String _cleanQuery(String title) {
+    var t = title.trim();
+    // أخذ السطر الأول فقط
+    t = t.split('\n').first.trim();
+    // إزالة الأقواس وأرقام السنوات والجودات
+    t = t.replaceAll(RegExp(r'[\[\]()【】\(\){}《》«»]'), ' ');
+    t = t.replaceAll(RegExp(r'\b(19|20)\d{2}\b'), ' ');
+    t = t.replaceAll(RegExp(r'\b(2160p|1080p|720p|480p|360p|4k|uhd|bluray|web-?dl|hdrip|hdtv|dvdrip|brrip|fhd|hd)\b', caseSensitive: false), ' ');
+    t = t.replaceAll(RegExp(r'(مترجم|مدبلج|مترجمة|مدبلجة|جودة|quality|فيلم|movie|film)', caseSensitive: false), ' ');
+    // إزالة أرقام الترقيم في البداية
+    t = t.replaceAll(RegExp(r'^[#\d\.\-\s:]+'), '');
+    // تنظيف المسافات
+    t = t.replaceAll(RegExp(r'[\s_\-|:]+'), ' ').trim();
+    return t;
+  }
+
   static Future<Map<String, dynamic>?> search(String title) async {
-    try {
-      final r = await _d.get('https://api.themoviedb.org/3/search/movie',
-          queryParameters: {
-            'api_key': apiKey,
-            'query': title,
-            'include_adult': 'false'
-          });
-      final res = (r.data['results'] as List?);
-      if (res == null || res.isEmpty) return null;
-      final m = res[0];
-      return {
-        'vote': (m['vote_average'] ?? 0).toString(),
-        'overview': m['overview'] ?? '',
-        'poster': (m['poster_path'] != null && (m['poster_path'] as String).isNotEmpty)
-            ? 'https://image.tmdb.org/t/p/w500${m['poster_path']}'
-            : '',
-        'year': ((m['release_date'] ?? '').toString().split('-').first),
-      };
-    } catch (_) {
-      return null;
+    final queries = <String>[];
+
+    // 1) الاسم المنظّف
+    final q1 = _cleanQuery(title);
+    if (q1.length >= 2) queries.add(q1);
+
+    // 2) الاسم داخل الأقواس (إنجليزي عادة)
+    final m = RegExp(r'\(([^)]+)\)').firstMatch(title);
+    if (m != null) {
+      final inside = m.group(1)!.trim();
+      if (inside.length >= 2) queries.add(inside);
     }
+
+    // 3) الحروف الإنجليزية فقط (للاسم العربي المختلط)
+    final engOnly = q1.replaceAll(RegExp(r'[^\x00-\x7F\s]'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (engOnly.length >= 3 && engOnly != q1) queries.add(engOnly);
+
+    for (final q in queries) {
+      try {
+        final r = await _d.get('https://api.themoviedb.org/3/search/movie',
+            queryParameters: {
+              'api_key': apiKey,
+              'query': q,
+              'include_adult': 'false',
+              'language': 'ar',
+            });
+        final res = (r.data['results'] as List?);
+        if (res != null && res.isNotEmpty) {
+          final movie = res[0];
+          return {
+            'vote': (movie['vote_average'] ?? 0).toString(),
+            'overview': movie['overview'] ?? '',
+            'poster': (movie['poster_path'] != null && (movie['poster_path'] as String).isNotEmpty)
+                ? 'https://image.tmdb.org/t/p/w500${movie['poster_path']}'
+                : '',
+            'year': ((movie['release_date'] ?? '').toString().split('-').first),
+          };
+        }
+      } catch (_) {}
+    }
+    return null;
   }
 }
 
