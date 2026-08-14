@@ -385,7 +385,7 @@ class MovieDetailsScreen extends StatelessWidget {
       );
 }
 
-/* ======== المشغل الاحترافي بالإيماءات + حفظ الموضع + التدوير ======== */
+/* ======== المشغل الاحترافي ======== */
 class PlayerScreen extends StatefulWidget {
   final String title;
   final String? url;
@@ -407,7 +407,6 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   Timer? _hide;
   Timer? _posSaver;
   bool _isLandscape = true;
-  // الإيماءات
   Offset? _start;
   int _gmode = 0;
   String _glabel = '';
@@ -434,6 +433,13 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
       _savePosition();
+      _c?.pause();
+    } else if (state == AppLifecycleState.resumed) {
+      final c = _c;
+      if (c != null && c.value.isInitialized) {
+        c.play();
+        _poke();
+      }
     }
   }
 
@@ -464,7 +470,6 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       });
       await c.initialize();
 
-      // استئناف من الموضع المحفوظ
       if (widget.movie != null) {
         final savedPos = Store.getPosition(widget.movie!.id);
         if (savedPos > 0) {
@@ -537,11 +542,9 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
           Center(
               child: AspectRatio(
                   aspectRatio: c.value.aspectRatio, child: VideoPlayer(c))),
-        // طبقة الإضاءة
         IgnorePointer(
             child: Container(
                 color: Colors.black.withOpacity((1 - _bright) * 0.85))),
-        // طبقة الإيماءات
         GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: () {
@@ -592,7 +595,6 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
           onVerticalDragEnd: (_) => setState(() => _gmode = 0),
           child: Container(color: Colors.transparent),
         ),
-        // مؤشر الإيماءات
         if (_gmode != 0)
           Center(
               child: Container(
@@ -624,7 +626,6 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
         if (!_ready && !_err)
           const Center(
               child: CircularProgressIndicator(color: Color(0xFFE5B13D))),
-        // الشريط العلوي
         if (_ui)
           Positioned(
               top: 0,
@@ -664,7 +665,6 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                               : [DeviceOrientation.portraitUp]);
                         }),
                   ])))),
-        // شريط التحكم السفلي
         if (_ui && _ready && c != null)
           Positioned(
               bottom: 0,
