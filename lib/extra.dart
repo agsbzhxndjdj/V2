@@ -35,7 +35,6 @@ class SettingsPage extends StatelessWidget {
       builder: (_, __, ___) => Scaffold(
             appBar: AppBar(title: Text(Lang.t('settings'))),
             body: ListView(children: [
-              /* ---- اللغة ---- */
               _header(Lang.t('language')),
               Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -58,7 +57,6 @@ class SettingsPage extends StatelessWidget {
                               Lang.set('en');
                             })),
                   ])),
-              /* ---- الثيم ---- */
               _header(Lang.t('appearance')),
               SizedBox(
                   height: 52,
@@ -84,13 +82,11 @@ class SettingsPage extends StatelessWidget {
                                           color: Colors.white, size: 20)
                                       : null)))
                           .toList())),
-              /* ---- العرض ---- */
               _header(Lang.t('viewMode')),
               _sw(Lang.t('list'), null, Store.getBool('listView'),
                   (v) => Store.setPref('listView', v)),
               _sw(Lang.t('hideWatched'), null, Store.getBool('hideWatched'),
                   (v) => Store.setPref('hideWatched', v)),
-              /* ---- المشاهدة ---- */
               _header(Lang.t('movies')),
               _sw(Lang.t('incognito'), Lang.t('incognitoHint'),
                   Store.getBool('incognito'),
@@ -98,12 +94,10 @@ class SettingsPage extends StatelessWidget {
               _sw(Lang.t('kidsMode'), Lang.t('kidsModeHint'),
                   Store.getBool('kidsMode'),
                   (v) => Store.setPref('kidsMode', v)),
-              /* ---- التحميل ---- */
               _header(Lang.t('downloads')),
               _sw(Lang.t('wifiOnly'), Lang.t('wifiNeeded'),
                   Store.getBool('wifiOnly'),
                   (v) => Store.setPref('wifiOnly', v)),
-              /* ---- الإحصائيات ---- */
               _header(Lang.t('stats')),
               ListTile(
                   leading: const CircleAvatar(
@@ -112,7 +106,6 @@ class SettingsPage extends StatelessWidget {
                       style: const TextStyle(fontSize: 14)),
                   onTap: () => Navigator.push(context,
                       MaterialPageRoute(builder: (_) => const StatsPage()))),
-              /* ---- النسخ الاحتياطي ---- */
               _header(Lang.t('backup')),
               ListTile(
                   leading: const CircleAvatar(
@@ -131,7 +124,7 @@ class SettingsPage extends StatelessWidget {
 
   Future _export(BuildContext context) async {
     final data = await Store.exportAll();
-    final s = jsonEncode(data);  // ✨ تحويل Map إلى String
+    final s = jsonEncode(data);
     final dir = await getExternalStorageDirectory();
     final f = File('${dir!.path}/tele_cinema_backup.json');
     await f.writeAsString(s);
@@ -161,7 +154,8 @@ class SettingsPage extends StatelessWidget {
               FilledButton(
                   onPressed: () async {
                     try {
-                      final m = Map<String, dynamic>.from(jsonDecode(ctrl.text));  // ✨ تحويل String إلى Map
+                      final m = Map<String, dynamic>.from(
+                          jsonDecode(ctrl.text));
                       await Store.importAll(m);
                       if (context.mounted) Navigator.pop(context);
                     } catch (_) {}
@@ -282,28 +276,36 @@ void newPlaylistDialog(BuildContext context) {
           ]));
 }
 
+/* ✨ تم إصلاح مشكلة السطر 301 هنا */
 void showPlaylistDialog(BuildContext context, Movie m) {
   showDialog(
       context: context,
       builder: (_) => ValueListenableBuilder<int>(
           valueListenable: Store.tick,
           builder: (_, __, ___) {
-            final pls = Store.playlists();
+            // ✨ تحويل صريح إلى Map<String, dynamic> قبل الاستخدام
+            final rawPls = Store.playlists();
+            final Map<String, dynamic> pls = rawPls is Map
+                ? rawPls.map((k, v) => MapEntry(k.toString(), v))
+                : <String, dynamic>{};
+            
+            final keys = pls.keys.toList();
+            
             return AlertDialog(
                 backgroundColor: const Color(0xFF151B23),
                 title: Text(Lang.t('playlists')),
                 content: SizedBox(
                     width: double.maxFinite,
-                    child: pls.isEmpty
+                    child: keys.isEmpty
                         ? Text(Lang.t('newPlaylist'))
                         : ListView(
                             shrinkWrap: true,
-                            children: (pls is Map ? pls.keys : []).map((n) {
-                              final inside = Store.playlistMovies(n.toString())
+                            children: keys.map((String n) {
+                              final inside = Store.playlistMovies(n)
                                   .any((e) => e.id == m.id);
                               return ListTile(
                                   dense: true,
-                                  title: Text(n.toString(),
+                                  title: Text(n,
                                       style: const TextStyle(fontSize: 13)),
                                   trailing: Icon(
                                       inside
@@ -313,7 +315,7 @@ void showPlaylistDialog(BuildContext context, Movie m) {
                                           ? AppTheme.accent
                                           : Colors.grey),
                                   onTap: () =>
-                                      Store.toggleInPlaylist(n.toString(), m));
+                                      Store.toggleInPlaylist(n, m));
                             }).toList())));
           }));
 }
