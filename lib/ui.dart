@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:video_player/video_player.dart';
+import 'package:volume_controller/volume_controller.dart';
 import 'core.dart';
 
 String _fmt(Duration d) {
@@ -423,6 +424,10 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
+    VolumeController().showSystemUI = false;
+    VolumeController().listener((v) {
+      if (mounted) setState(() => _vol = v);
+    });
     _init();
     _poke();
     _startPositionSaver();
@@ -486,6 +491,8 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
         _ready = true;
       });
       c.setVolume(1);
+      final sv = await VolumeController().getVolume();
+      if (mounted && sv != null) setState(() => _vol = sv);
       c.play();
     } catch (_) {
       if (mounted) setState(() => _err = true);
@@ -518,6 +525,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   void dispose() {
     _savePosition();
     _posSaver?.cancel();
+    VolumeController().removeListener();
     WidgetsBinding.instance.removeObserver(this);
     _hide?.cancel();
     _c?.dispose();
@@ -584,7 +592,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
             final step = dy / 400;
             if (_gmode == 2) {
               _vol = (_vol + step).clamp(0.0, 1.0);
-              c?.setVolume(_vol);
+              VolumeController().setVolume(_vol);
               setState(() => _glabel = '${(_vol * 100).round()}%');
             } else if (_gmode == 3) {
               _bright = (_bright + step).clamp(0.0, 1.0);
