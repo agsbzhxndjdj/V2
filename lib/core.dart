@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
@@ -203,7 +204,7 @@ class Tg {
   }
 }
 
-/* ======== التخزين ======== */
+/* ======== التخزين + الإعدادات ======== */
 class Store {
   static late Box _ch, _mv, _st;
   static final ValueNotifier<int> tick = ValueNotifier(0);
@@ -213,6 +214,21 @@ class Store {
     _mv = await Hive.openBox('movies');
     _st = await Hive.openBox('state');
   }
+
+  /* ---- الإعدادات العامة ---- */
+  static Map<String, dynamic> prefs() =>
+      Map<String, dynamic>.from(_st.get('prefs') ?? {});
+  static Future setPref(String k, dynamic v) async {
+    final p = prefs();
+    p[k] = v;
+    await _st.put('prefs', p);
+    tick.value++;
+  }
+
+  static String get locale => (prefs()['locale'] as String?) ?? 'ar';
+  static String get theme => (prefs()['theme'] as String?) ?? 'gold';
+  static bool getBool(String k, [bool d = false]) =>
+      (prefs()[k] as bool?) ?? d;
 
   static List<Channel> channels() => _ch.values
       .map((e) => Channel.fromJson(Map<String, dynamic>.from(e)))
@@ -259,12 +275,45 @@ class Store {
     tick.value++;
   }
 
+  /* ======== سأشاهده لاحقاً ======== */
+  static List<Movie> watchLater() => ((_st.get('watchLater') as List?) ?? [])
+      .map((e) => Movie.fromJson(Map<String, dynamic>.from(e)))
+      .toList();
+
+  static bool isLater(String id) => watchLater().any((e) => e.id == id);
+
+  static Future toggleLater(Movie m) async {
+    final f = watchLater();
+    if (f.any((e) => e.id == m.id)) {
+      f.removeWhere((e) => e.id == m.id);
+    } else {
+      f.insert(0, m);
+    }
+    await _st.put('watchLater', f.map((e) => e.toJson()).toList());
+    tick.value++;
+  }
+
+  /* ======== التقييم ======== */
+  static Map<String, int> ratings() =>
+      Map<String, int>.from(_st.get('ratings') ?? {});
+  static Future rate(String id, int stars) async {
+    final r = ratings();
+    if (stars <= 0) {
+      r.remove(id);
+    } else {
+      r[id] = stars;
+    }
+    await _st.put('ratings', r);
+    tick.value++;
+  }
+
   /* ======== سجل المشاهدة ======== */
   static List<Movie> history() => ((_st.get('history') as List?) ?? [])
       .map((e) => Movie.fromJson(Map<String, dynamic>.from(e)))
       .toList();
 
   static Future markWatched(Movie m) async {
+    if (getBool('incognito')) return;
     final h = history()..removeWhere((e) => e.id == m.id);
     h.insert(0, m);
     await _st.put('history', h.map((e) => e.toJson()).toList());
@@ -291,6 +340,70 @@ class Store {
 
   static int getPosition(String movieId) => positions()[movieId] ?? 0;
 
+  /* ======== القوائم المخصصة ======== */
+  static Map<String, dynamic> playlists() =>
+      Map<String, dynamic>.from(_st.get('playlists') ?? {});
+  static Future addPlaylist(String name) async {
+    final p = playlists();
+    p[name] = <dynamic>[];
+    await _st.put('playlists', p);
+    tick.value++;
+  }
+
+  static Future delPlaylist(String name) async {
+    final p = playlists();
+    p.remove(name);
+    await _st.put('playlists', p);
+    tick.value++;
+  }
+
+  static List<Movie> playlistMovies(String name) =>
+      ((playlists()[name] as List?) ?? [])
+          .map((e) => Movie.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+
+  static Future toggleInPlaylist(String name, Movie m) async {
+    final p = playlists();
+    final l = playlistMovies(name);
+    if (l.any((e) => e.id == m.id)) {
+      l.removeWhere((e) => e.id == m.id);
+    } else {
+      l.insert(0, m);
+    }
+    p[name] = l.map((e) => e.toJson()).toList();
+    await _st.put('playlists', p);
+    tick.value++;
+  }
+
+  /* ======== الإحصائيات ======== */
+  static Map<String, dynamic> stats() =>
+      Map<String, dynamic>.from(_st.get('stats') ?? {});
+  static Future addWatchSeconds(int s) async {
+    final st = stats();
+    st['seconds'] = ((st['seconds'] as int?) ?? 0) + s;
+    st['count'] = ((st['count'] as int?) ?? 0) + 1;
+    await _st.put('stats', st);
+  }
+
+  /* ======== النسخ الاحتياطي ======== */
+  static Future<Map<String, dynamic>> exportAll() async => {
+        'channels': _ch.toMap(),
+        'movies': _mv.toMap(),
+        'state': _st.toMap(),
+      };
+
+  static Future importAll(Map<String, dynamic> data) async {
+    if (data['channels'] is Map) {
+      await _ch.clear();
+      await _ch.putAll(Map<String, dynamic>.from(data['channels']));
+    }
+    if (data['state'] is Map) {
+      await _st.clear();
+      await _st.putAll(Map<String, dynamic>.from(data['state']));
+    }
+    tick.value++;
+  }
+
   /* ======== التحميلات المكتملة ======== */
   static Map<String, dynamic> downloads() =>
       Map<String, dynamic>.from(_st.get('downloads') ?? {});
@@ -310,7 +423,7 @@ class Store {
   }
 }
 
-/* ======== مدير التحميلات (إيقاف مؤقت / استئناف / إلغاء) ======== */
+/* ======== مدير التحميلات ======== */
 class Downloader {
   static final Dio _dio = Dio();
   static final Map<String, CancelToken> _tokens = {};
@@ -320,6 +433,7 @@ class Downloader {
   static final Map<String, Movie> _movies = {};
   static final ValueNotifier<Map<String, double>> progress = ValueNotifier({});
   static final ValueNotifier<int> tick = ValueNotifier(0);
+  static final ValueNotifier<bool> wifiBlocked = ValueNotifier(false);
 
   static bool isActive(String id) => _tokens.containsKey(id);
 
@@ -342,10 +456,20 @@ class Downloader {
     if (await f.exists()) await f.delete();
   }
 
-  static Future start(Movie m) async {
+  static Future<bool> start(Movie m) async {
     final id = m.id;
-    if (isActive(id)) return;
-    if (isPaused(id)) return resume(id);
+    if (isActive(id)) return false;
+    if (isPaused(id)) {
+      await resume(id);
+      return true;
+    }
+    if (Store.getBool('wifiOnly')) {
+      final r = await Connectivity().checkConnectivity();
+      if (r != ConnectivityResult.wifi) {
+        wifiBlocked.value = true;
+        return false;
+      }
+    }
     _movies[id] = m;
     _paused[id] = false;
     _cancelled[id] = false;
@@ -353,6 +477,7 @@ class Downloader {
     progress.value = {...progress.value, id: 0.0};
     tick.value++;
     await _run(m, 0);
+    return true;
   }
 
   static Future _run(Movie m, int offset) async {
