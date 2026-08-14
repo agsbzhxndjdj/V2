@@ -35,6 +35,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pub-
 
+      - name: Generate android folder
+        run: flutter create . --platforms android --no-overwrite
+
       - name: Grant execute permission for gradlew
         run: chmod +x android/gradlew || true
 
