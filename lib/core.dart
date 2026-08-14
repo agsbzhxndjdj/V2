@@ -39,7 +39,7 @@ class Movie {
   final String title, poster, videoUrl, description, quality, size, duration;
   final List<String> genres;
   final int date;
-  final List<Map<String, String>> alts; // ✨ جديد: الجودات البديلة
+  final List<Map<String, String>> alts;
   late final String id, hay;
 
   Movie(
@@ -60,13 +60,11 @@ class Movie {
     hay = Search.norm('$title $description ${genres.join(' ')}');
   }
 
-  // ✨ جديد: استخراج السنة
   int get year {
     final m = RegExp(r'(19|20)\d{2}').firstMatch('$title $description');
     return m == null ? 0 : int.parse(m.group(0)!);
   }
 
-  // ✨ جديد: الحجم بالميغابايت
   double get sizeMb {
     final m = RegExp(r'([\d.]+)\s*(GB|MB|TB)', caseSensitive: false).firstMatch(size);
     if (m == null) return 0;
@@ -102,7 +100,9 @@ class Movie {
       size: m['size'] ?? '',
       duration: m['duration'] ?? '',
       date: m['date'] ?? 0,
-      alts: (m['alts'] as List?)?.map((e) => Map<String, String>.from(e)).toList());
+      alts: (m['alts'] as List?)
+          ?.map((e) => Map<String, String>.from(e))
+          .toList());
 }
 
 /* ======== البحث الذكي ======== */
@@ -157,14 +157,20 @@ class Tg {
       '${ApiConfig.baseUrl}/poster/$user/$msgId?key=${ApiConfig.apiKey}';
 
   static Future<Page> fetchPage(String user, {int? before}) async {
-    if (before != null) return Page([], null, user, null);
     final res = await _dio.get('${ApiConfig.baseUrl}/channel/$user',
-        queryParameters: {'key': ApiConfig.apiKey, 'limit': 200});
+        queryParameters: {
+          'key': ApiConfig.apiKey,
+          'limit': 200,
+          if (before != null && before > 0) 'offset': before,
+        });
     final data = res.data;
     if (data is! Map) throw Exception('استجابة غير صالحة من الخادم');
     if (data['error'] != null) throw Exception(data['error'].toString());
     final title = (data['title'] ?? user).toString();
     final avatar = data['avatar']?.toString();
+    final next = (data['next_offset'] is num)
+        ? (data['next_offset'] as num).toInt()
+        : ((data['before'] is num) ? (data['before'] as num).toInt() : null);
     final movies = <Movie>[];
     for (final item in (data['messages'] as List? ?? [])) {
       if (item is! Map) continue;
@@ -175,14 +181,15 @@ class Tg {
       final date =
           ((item['date'] is num) ? (item['date'] as num).toInt() : 0) * 1000;
 
-      // ✨ جديد: استخراج الجودات البديلة من السيرفر
       final alts = <Map<String, String>>[];
       if (item['alts'] is List) {
         for (final a in item['alts'] as List) {
-          if (a is Map && a['url'] != null) {
+          if (a is! Map) continue;
+          final amid = (a['msg_id'] is num) ? (a['msg_id'] as num).toInt() : 0;
+          if (amid > 0) {
             alts.add({
-              'q': (a['quality'] ?? a['q'] ?? 'جودة أخرى').toString(),
-              'url': a['url'].toString(),
+              'q': (a['q'] ?? a['quality'] ?? 'جودة أخرى').toString(),
+              'url': streamUrl(user, amid),
             });
           }
         }
@@ -190,12 +197,11 @@ class Tg {
 
       movies.add(_build(user, mid, caption, date,
           (item['duration'] ?? '').toString(), (item['size'] ?? '').toString(),
-          alts: alts));
+          alts: alts, serverQuality: (item['quality'] ?? '').toString()));
     }
-    return Page(movies, null, title, avatar);
+    return Page(movies, next, title, avatar);
   }
 
-  // ✨ جديد: جلب الأفلام الجديدة فقط (للمزامنة)
   static Future<List<Movie>> fetchNew(String user, {int? afterMsgId}) async {
     try {
       final page = await fetchPage(user);
@@ -206,14 +212,15 @@ class Tg {
   }
 
   static Movie _build(String ch, int mid, String caption, int date,
-      String dur, String size, {List<Map<String, String>>? alts}) {
+      String dur, String size,
+      {List<Map<String, String>>? alts, String? serverQuality}) {
     final lines = caption
         .split('\n')
         .map((e) => e.trim())
         .where((e) => e.isNotEmpty)
         .toList();
     final title = lines.isNotEmpty ? lines.first : 'فيديو #$mid';
-    var quality = '';
+    var quality = serverQuality ?? '';
     var genres = <String>[];
     final desc = <String>[];
     for (final l in lines.skip(1)) {
@@ -249,6 +256,41 @@ class Tg {
   }
 }
 
+/* ======== تحميل القناة كاملة (دفعات حتى النهاية) ======== */
+class BulkLoader {
+  static final Set<String> _running = {};
+  static final ValueNotifier<String> status = ValueNotifier('');
+
+  static bool isRunning(String u) => _running.contains(u);
+
+  static Future<void> loadAll(String user) async {
+    if (_running.contains(user)) return;
+    _running.add(user);
+    try {
+      int? offset;
+      final ids = Store.moviesOf(user).map((e) => e.msgId).toSet();
+      var pages = 0;
+      while (pages < 60) {
+        status.value = 'تحميل ${user}… (${ids.length} فيلم)';
+        final page = await Tg.fetchPage(user, before: offset);
+        if (page.movies.isEmpty) break;
+        final fresh = page.movies.where((m) => !ids.contains(m.msgId)).toList();
+        if (fresh.isNotEmpty) {
+          await Store.saveMovies(user, fresh);
+          for (final m in fresh) ids.add(m.msgId);
+        }
+        if (page.before == null || page.before == 0 || page.before == offset) break;
+        offset = page.before;
+        pages++;
+        await Future.delayed(const Duration(milliseconds: 250));
+      }
+    } catch (_) {}
+    _running.remove(user);
+    status.value = '';
+    Store.tick.value++;
+  }
+}
+
 /* ======== التخزين + الإعدادات ======== */
 class Store {
   static late Box _ch, _mv, _st;
@@ -269,11 +311,8 @@ class Store {
     tick.value++;
   }
 
-  // ✨ جديد: getters/setters إضافية للفرز
-  static String getString(String k, [String def = '']) {
-    final p = prefs();
-    return (p[k] as String?) ?? def;
-  }
+  static String getString(String k, [String def = '']) =>
+      (prefs()[k] as String?) ?? def;
   static Future setString(String k, String v) => setPref(k, v);
 
   static String get locale => (prefs()['locale'] as String?) ?? 'ar';
@@ -298,25 +337,30 @@ class Store {
     tick.value++;
   }
 
-  // ✨ جديد: أعلى معرف رسالة في القناة (للمزامنة)
   static int maxId(String u) {
     final movies = moviesOf(u);
-    return movies.isEmpty ? 0 : movies.map((m) => m.msgId).reduce((a, b) => a > b ? a : b);
+    if (movies.isEmpty) return 0;
+    return movies.map((m) => m.msgId).reduce((a, b) => a > b ? a : b);
   }
 
   static List<Movie> moviesOf(String u) => ((_mv.get(u) as List?) ?? [])
       .map((e) => Movie.fromJson(Map<String, dynamic>.from(e)))
       .toList();
 
-  static Future saveMovies(String u, List<Movie> l) =>
-      _mv.put(u, l.map((e) => e.toJson()).toList());
+  static Future saveMovies(String u, List<Movie> l) async {
+    final old = moviesOf(u);
+    final ids = old.map((e) => e.msgId).toSet();
+    final merged = [...old, ...l.where((e) => !ids.contains(e.msgId))];
+    merged.sort((a, b) => b.msgId.compareTo(a.msgId));
+    await _mv.put(u, merged.map((e) => e.toJson()).toList());
+    tick.value++;
+  }
 
   static List<Movie> all() => channels()
       .expand((c) => moviesOf(c.username))
       .toList()
         ..sort((a, b) => b.date.compareTo(a.date));
 
-  // ✨ جديد: تنظيف الكاش
   static Future clearCache() async {
     await _mv.clear();
     tick.value++;
@@ -499,11 +543,13 @@ class Sync {
     for (final c in Store.channels()) {
       status.value = 'التحقق من الجديد: ${c.title}';
       try {
-        final fresh = await Tg.fetchNew(c.username, afterMsgId: Store.maxId(c.username));
+        final fresh =
+            await Tg.fetchNew(c.username, afterMsgId: Store.maxId(c.username));
         if (fresh.isNotEmpty) {
           final old = Store.moviesOf(c.username);
           final ids = old.map((e) => e.msgId).toSet();
-          await Store.saveMovies(c.username, [...fresh, ...old.where((e) => !ids.contains(e.msgId))]);
+          await Store.saveMovies(c.username,
+              [...fresh, ...old.where((e) => !ids.contains(e.msgId))]);
           onNewMovies?.call(fresh.length, c.title.isEmpty ? c.username : c.title);
         }
       } catch (_) {}
@@ -666,19 +712,19 @@ class Tmdb {
       connectTimeout: const Duration(seconds: 8),
       receiveTimeout: const Duration(seconds: 8)));
 
-  // ✨ تنظيف اسم الفيلم من التشويش قبل البحث
   static String _cleanQuery(String title) {
     var t = title.trim();
-    // أخذ السطر الأول فقط
     t = t.split('\n').first.trim();
-    // إزالة الأقواس وأرقام السنوات والجودات
-    t = t.replaceAll(RegExp(r'[\[\]()【】\(\){}《》«»]'), ' ');
+    t = t.replaceAll(RegExp(r'[\[\]()【】{}《》«»]'), ' ');
     t = t.replaceAll(RegExp(r'\b(19|20)\d{2}\b'), ' ');
-    t = t.replaceAll(RegExp(r'\b(2160p|1080p|720p|480p|360p|4k|uhd|bluray|web-?dl|hdrip|hdtv|dvdrip|brrip|fhd|hd)\b', caseSensitive: false), ' ');
-    t = t.replaceAll(RegExp(r'(مترجم|مدبلج|مترجمة|مدبلجة|جودة|quality|فيلم|movie|film)', caseSensitive: false), ' ');
-    // إزالة أرقام الترقيم في البداية
-    t = t.replaceAll(RegExp(r'^[#\d\.\-\s:]+'), '');
-    // تنظيف المسافات
+    t = t.replaceAll(RegExp(
+        r'\b(2160p|1080p|720p|480p|360p|4k|uhd|bluray|web-?dl|hdrip|hdtv|dvdrip|brrip|fhd|hd)\b',
+        caseSensitive: false), ' ');
+    t = t.replaceAll(
+        RegExp(r'(مترجم|مدبلج|مترجمة|مدبلجة|جودة|quality|فيلم|movie|film)',
+            caseSensitive: false),
+        ' ');
+    t = t.replaceAll(RegExp(r'^[#\d.\-\s:]+'), '');
     t = t.replaceAll(RegExp(r'[\s_\-|:]+'), ' ').trim();
     return t;
   }
@@ -686,19 +732,19 @@ class Tmdb {
   static Future<Map<String, dynamic>?> search(String title) async {
     final queries = <String>[];
 
-    // 1) الاسم المنظّف
     final q1 = _cleanQuery(title);
     if (q1.length >= 2) queries.add(q1);
 
-    // 2) الاسم داخل الأقواس (إنجليزي عادة)
     final m = RegExp(r'\(([^)]+)\)').firstMatch(title);
     if (m != null) {
       final inside = m.group(1)!.trim();
       if (inside.length >= 2) queries.add(inside);
     }
 
-    // 3) الحروف الإنجليزية فقط (للاسم العربي المختلط)
-    final engOnly = q1.replaceAll(RegExp(r'[^\x00-\x7F\s]'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+    final engOnly = q1
+        .replaceAll(RegExp(r'[^\x00-\x7F\s]'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
     if (engOnly.length >= 3 && engOnly != q1) queries.add(engOnly);
 
     for (final q in queries) {
@@ -708,7 +754,6 @@ class Tmdb {
               'api_key': apiKey,
               'query': q,
               'include_adult': 'false',
-              'language': 'ar',
             });
         final res = (r.data['results'] as List?);
         if (res != null && res.isNotEmpty) {
@@ -716,7 +761,8 @@ class Tmdb {
           return {
             'vote': (movie['vote_average'] ?? 0).toString(),
             'overview': movie['overview'] ?? '',
-            'poster': (movie['poster_path'] != null && (movie['poster_path'] as String).isNotEmpty)
+            'poster': (movie['poster_path'] != null &&
+                    (movie['poster_path'] as String).isNotEmpty)
                 ? 'https://image.tmdb.org/t/p/w500${movie['poster_path']}'
                 : '',
             'year': ((movie['release_date'] ?? '').toString().split('-').first),
@@ -807,7 +853,10 @@ class Sorter {
         final decadeW = <int, int>{};
         for (final h in Store.history()) {
           for (final g in h.genres) genreW[g] = (genreW[g] ?? 0) + 1;
-          if (h.year > 0) decadeW[(h.year ~/ 10) * 10] = (decadeW[(h.year ~/ 10) * 10] ?? 0) + 1;
+          if (h.year > 0) {
+            decadeW[(h.year ~/ 10) * 10] =
+                (decadeW[(h.year ~/ 10) * 10] ?? 0) + 1;
+          }
         }
         final rates = Store.ratings();
         double score(Movie m) {
