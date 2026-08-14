@@ -98,7 +98,9 @@ class Search {
   static List<Movie> run(List<Movie> src, String q) {
     final nq = norm(q);
     if (nq.isEmpty) return src;
-    return src.where((m) => nq.split(' ').every((t) => m.hay.contains(t))).toList();
+    return src
+        .where((m) => nq.split(' ').every((t) => m.hay.contains(t)))
+        .toList();
   }
 }
 
@@ -151,13 +153,15 @@ class Tg {
     for (final item in (data['messages'] as List? ?? [])) {
       if (item is! Map) continue;
       if (item['has_video'] != true) continue;
-      final mid = (item['msg_id'] is num) ? (item['msg_id'] as num).toInt() : 0;
+      final mid =
+          (item['msg_id'] is num) ? (item['msg_id'] as num).toInt() : 0;
       if (mid == 0) continue;
       final caption = (item['text'] ?? '').toString();
       final date =
           ((item['date'] is num) ? (item['date'] as num).toInt() : 0) * 1000;
       movies.add(_build(user, mid, caption, date,
-          (item['duration'] ?? '').toString(), (item['size'] ?? '').toString()));
+          (item['duration'] ?? '').toString(),
+          (item['size'] ?? '').toString()));
     }
     return Page(movies, null, title, avatar);
   }
@@ -293,7 +297,8 @@ class Downloader {
     final token = CancelToken();
     _tasks[m.id] = token;
     try {
-      final name = m.title.replaceAll(RegExp(r'[^\w\u0600-\u06FF\- ]'), '').trim();
+      final name =
+          m.title.replaceAll(RegExp(r'[^\w\u0600-\u06FF\- ]'), '').trim();
       final path = '${await _dir()}/$name.mp4';
       await _dio.download(m.videoUrl, path,
           cancelToken: token,
