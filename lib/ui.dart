@@ -186,6 +186,7 @@ class MovieCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Card(
+        key: ValueKey('card_${m.id}_${Store.tick.value}'),
         clipBehavior: Clip.antiAlias,
         margin: const EdgeInsets.all(6),
         child: InkWell(
@@ -194,8 +195,11 @@ class MovieCard extends StatelessWidget {
           child: Stack(fit: StackFit.expand, children: [
             m.poster.isNotEmpty
                 ? CachedNetworkImage(
+                    key: ValueKey('poster_${m.id}_${Store.tick.value}'),
                     imageUrl: m.poster,
                     fit: BoxFit.cover,
+                    fadeInDuration: const Duration(milliseconds: 300),
+                    fadeOutDuration: const Duration(milliseconds: 200),
                     placeholder: (_, __) => _ph(),
                     errorWidget: (_, __, ___) => _ph())
                 : _ph(),
@@ -276,8 +280,11 @@ class MovieDetailsScreen extends StatelessWidget {
         body: Stack(fit: StackFit.expand, children: [
           if (m.poster.isNotEmpty)
             CachedNetworkImage(
+                key: ValueKey('details_${m.id}_${Store.tick.value}'),
                 imageUrl: m.poster,
                 fit: BoxFit.cover,
+                fadeInDuration: const Duration(milliseconds: 300),
+                fadeOutDuration: const Duration(milliseconds: 200),
                 errorWidget: (_, __, ___) => const SizedBox()),
           Container(
               decoration: const BoxDecoration(
