@@ -1,4 +1,4 @@
-name: Build iOS for Scarlet
+name: Build Android APK
 
 on:
   push:
@@ -6,12 +6,18 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-ios:
-    runs-on: macos-latest
+  build:
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -19,59 +25,23 @@ jobs:
           flutter-version: '3.24.3'
           channel: 'stable'
 
-      - name: Generate iOS folder
-        run: flutter create . --platforms ios --no-overwrite
+      - name: Generate android folder
+        run: flutter create . --platforms android --no-overwrite
 
-      - name: Configure iOS settings
+      - name: Patch AndroidManifest (السماح بـ HTTP + اسم التطبيق)
         run: |
-          # السماح بـ HTTP
-          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" ios/Runner/Info.plist 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoads bool true" ios/Runner/Info.plist 2>/dev/null || true
+          sed -i 's/<application/<application android:usesCleartextTraffic="true"/' android/app/src/main/AndroidManifest.xml
+          sed -i 's/android:label="[^"]*"/android:label="تلي سينما"/' android/app/src/main/AndroidManifest.xml
+          grep -n "usesCleartextTraffic" android/app/src/main/AndroidManifest.xml
 
-          # اسم التطبيق
-          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName تلي سينما" ios/Runner/Info.plist 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string تلي سينما" ios/Runner/Info.plist 2>/dev/null || true
-
-          # دعم الاتجاهات
-          /usr/libexec/PlistBuddy -c "Delete :UISupportedInterfaceOrientations" ios/Runner/Info.plist 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations array" ios/Runner/Info.plist
-          /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations: string UIInterfaceOrientationPortrait" ios/Runner/Info.plist
-          /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations: string UIInterfaceOrientationLandscapeLeft" ios/Runner/Info.plist
-          /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations: string UIInterfaceOrientationLandscapeRight" ios/Runner/Info.plist
-
-          # أقل إصدار iOS
-          /usr/libexec/PlistBuddy -c "Set :MinimumOSVersion 13.0" ios/Runner/Info.plist 2>/dev/null || true
-
-      - name: Set deployment target in Podfile
+      - name: البناء
         run: |
-          cd ios
-          if [ -f Podfile ]; then
-            sed -i '' "s/platform :ios, .*/platform :ios, '13.0'/" Podfile
-          fi
+          flutter pub get
+          flutter pub run flutter_launcher_icons:main
+          flutter build apk --release
 
-      - name: Get dependencies
-        run: flutter pub get
-
-      - name: Install CocoaPods
-        run: |
-          cd ios
-          pod repo update
-          pod install --repo-update
-
-      - name: Build iOS (unsigned)
-        run: flutter build ios --release --no-codesign
-
-      - name: Package as IPA for Scarlet
-        run: |
-          cd build/ios/iphoneos
-          mkdir -p Payload
-          cp -r Runner.app Payload/
-          zip -r tele-cinema-ios.ipa Payload/
-          rm -rf Payload
-
-      - name: Upload IPA for Scarlet
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: tele-cinema-ios-scarlet
-          path: build/ios/iphoneos/tele-cinema-ios.ipa
-          retention-days: 14
+          name: tele-cinema-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
