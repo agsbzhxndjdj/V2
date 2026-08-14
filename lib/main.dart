@@ -1,9 +1,11 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'core.dart';
 import 'lang.dart';
 import 'ui.dart';
+import 'tv.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -37,14 +39,24 @@ class Splash extends StatefulWidget {
 }
 
 class _SplashState extends State<Splash> {
+  Future<bool> _isTv() async {
+    try {
+      final v = await const MethodChannel('tele_cinema/device').invokeMethod<bool>('isTv');
+      return v ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
-    Future.delayed(const Duration(milliseconds: 1500), () {
-      if (mounted) {
-        Navigator.pushReplacement(context,
-            MaterialPageRoute(builder: (_) => const HomeShell()));
-      }
+    Future.delayed(const Duration(milliseconds: 1500), () async {
+      if (!mounted) return;
+      final tv = await _isTv();
+      if (!mounted) return;
+      Navigator.pushReplacement(context,
+          MaterialPageRoute(builder: (_) => tv ? const TvHome() : const HomeShell()));
     });
   }
 
