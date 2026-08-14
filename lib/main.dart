@@ -2,6 +2,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'core.dart';
+import 'lang.dart';
 import 'ui.dart';
 
 Future<void> main() async {
@@ -11,35 +12,59 @@ Future<void> main() async {
   } catch (_) {}
   await Hive.initFlutter();
   await Store.init();
-  runApp(const TeleCinemaApp());
+  Lang.locale.value = Store.locale;
+  runApp(const Root());
 }
 
-class TeleCinemaApp extends StatelessWidget {
-  const TeleCinemaApp({super.key});
+class Root extends StatelessWidget {
+  const Root({super.key});
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<String>(
+      valueListenable: Lang.locale,
+      builder: (_, lang, __) => MaterialApp(
+            title: Lang.t('appName'),
+            debugShowCheckedModeBanner: false,
+            locale: Locale(lang),
+            theme: AppTheme.build(Store.theme),
+            home: const Splash(),
+          ));
+}
+
+class Splash extends StatefulWidget {
+  const Splash({super.key});
+  @override
+  State<Splash> createState() => _SplashState();
+}
+
+class _SplashState extends State<Splash> {
+  @override
+  void initState() {
+    super.initState();
+    Future.delayed(const Duration(milliseconds: 1500), () {
+      if (mounted) {
+        Navigator.pushReplacement(context,
+            MaterialPageRoute(builder: (_) => const HomeShell()));
+      }
+    });
+  }
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
-        title: 'تلي سينما',
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          brightness: Brightness.dark,
-          useMaterial3: true,
-          colorScheme: const ColorScheme.dark(
-            primary: Color(0xFFE5B13D),
-            secondary: Color(0xFFE5B13D),
-            surface: Color(0xFF0B0F14),
-          ),
-          scaffoldBackgroundColor: const Color(0xFF0B0F14),
-          navigationBarTheme: const NavigationBarThemeData(
-            backgroundColor: Color(0xFF12161F),
-            indicatorColor: Color(0xFFE5B13D),
-          ),
-          appBarTheme: const AppBarTheme(
-            backgroundColor: Color(0xFF12161F),
-            centerTitle: true,
-          ),
-          cardTheme: const CardTheme(color: Color(0xFF151B23)),
-        ),
-        home: const HomeShell(),
+  Widget build(BuildContext context) => Scaffold(
+        backgroundColor: const Color(0xFF0B0F14),
+        body: Center(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ClipRRect(
+              borderRadius: BorderRadius.circular(28),
+              child: Image.asset('assets/iconic.png',
+                  width: 120, height: 120)),
+          const SizedBox(height: 18),
+          Text(Lang.t('appName'),
+              style: TextStyle(
+                  fontSize: 26,
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.accent)),
+          const SizedBox(height: 24),
+          CircularProgressIndicator(color: AppTheme.accent),
+        ])),
       );
 }
