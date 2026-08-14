@@ -24,35 +24,42 @@ jobs:
 
       - name: Configure iOS settings
         run: |
-          # السماح بـ HTTP (السيرفر غير HTTPS)
+          # السماح بـ HTTP
           /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" ios/Runner/Info.plist 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoads bool true" ios/Runner/Info.plist 2>/dev/null || true
 
-          # اسم التطبيق بالعربي
+          # اسم التطبيق
           /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName تلي سينما" ios/Runner/Info.plist 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string تلي سينما" ios/Runner/Info.plist 2>/dev/null || true
 
-          # دعم الاتجاهات الأفقية والعمودية
+          # دعم الاتجاهات
           /usr/libexec/PlistBuddy -c "Delete :UISupportedInterfaceOrientations" ios/Runner/Info.plist 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations array" ios/Runner/Info.plist
           /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations: string UIInterfaceOrientationPortrait" ios/Runner/Info.plist
           /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations: string UIInterfaceOrientationLandscapeLeft" ios/Runner/Info.plist
           /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations: string UIInterfaceOrientationLandscapeRight" ios/Runner/Info.plist
 
-          # تحديد أقل إصدار iOS
+          # أقل إصدار iOS
           /usr/libexec/PlistBuddy -c "Set :MinimumOSVersion 13.0" ios/Runner/Info.plist 2>/dev/null || true
 
       - name: Set deployment target in Podfile
         run: |
           cd ios
           if [ -f Podfile ]; then
-            sed -i '' 's/platform :ios, .*/platform :ios, '\''13.0'\''/' Podfile
+            sed -i '' "s/platform :ios, .*/platform :ios, '13.0'/" Podfile
           fi
 
-      - name: Build iOS (unsigned)
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Install CocoaPods
         run: |
-          flutter pub get
-          flutter build ios --release --no-codesign
+          cd ios
+          pod repo update
+          pod install --repo-update
+
+      - name: Build iOS (unsigned)
+        run: flutter build ios --release --no-codesign
 
       - name: Package as IPA for Scarlet
         run: |
