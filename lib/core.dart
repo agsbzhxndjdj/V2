@@ -104,7 +104,7 @@ class Search {
   }
 }
 
-/* ======== قارئ القنوات (عبر سيرفرك) ======== */
+/* ======== قارئ القنوات ======== */
 class Page {
   final List<Movie> movies;
   final int? before;
@@ -136,17 +136,13 @@ class Tg {
 
   static Future<Page> fetchPage(String user, {int? before}) async {
     if (before != null) return Page([], null, user, null);
-
     final res = await _dio.get('${ApiConfig.baseUrl}/channel/$user',
         queryParameters: {'key': ApiConfig.apiKey, 'limit': 200});
-
     final data = res.data;
     if (data is! Map) throw Exception('استجابة غير صالحة من الخادم');
     if (data['error'] != null) throw Exception(data['error'].toString());
-
     final title = (data['title'] ?? user).toString();
     final avatar = data['avatar']?.toString();
-
     final movies = <Movie>[];
     for (final item in (data['messages'] as List? ?? [])) {
       if (item is! Map) continue;
@@ -242,6 +238,23 @@ class Store {
       .toList()
         ..sort((a, b) => b.date.compareTo(a.date));
 
+  /* ======== المفضلة ======== */
+  static List<Movie> favorites() => ((_st.get('favorites') as List?) ?? [])
+      .map((e) => Movie.fromJson(Map<String, dynamic>.from(e)))
+      .toList();
+  static bool isFav(String id) => favorites().any((e) => e.id == id);
+  static Future toggleFav(Movie m) async {
+    final f = favorites();
+    if (f.any((e) => e.id == m.id)) {
+      f.removeWhere((e) => e.id == m.id);
+    } else {
+      f.insert(0, m);
+    }
+    await _st.put('favorites', f.map((e) => e.toJson()).toList());
+    tick.value++;
+  }
+
+  /* ======== سجل المشاهدة ======== */
   static List<Movie> history() => ((_st.get('history') as List?) ?? [])
       .map((e) => Movie.fromJson(Map<String, dynamic>.from(e)))
       .toList();
@@ -258,19 +271,9 @@ class Store {
     tick.value++;
   }
 
-  static Map<String, dynamic> downloads() =>
-      Map<String, dynamic>.from(_st.get('downloads') ?? {});
-  static Future addDownload(Movie m, String path) async {
-    final d = downloads();
-    d[m.id] = {...m.toJson(), 'path': path};
-    await _st.put('downloads', d);
-    tick.value++;
-  }
-
-  /* ======== حفظ موضع المشاهدة ======== */
+  /* ======== موضع المشاهدة ======== */
   static Map<String, int> positions() =>
       Map<String, int>.from(_st.get('positions') ?? {});
-
   static Future savePosition(String movieId, int seconds) async {
     final p = positions();
     if (seconds > 10) {
@@ -280,7 +283,17 @@ class Store {
   }
 
   static int getPosition(String movieId) => positions()[movieId] ?? 0;
-  
+
+  /* ======== التحميلات المكتملة ======== */
+  static Map<String, dynamic> downloads() =>
+      Map<String, dynamic>.from(_st.get('downloads') ?? {});
+  static Future addDownload(Movie m, String path) async {
+    final d = downloads();
+    d[m.id] = {...m.toJson(), 'path': path};
+    await _st.put('downloads', d);
+    tick.value++;
+  }
+
   static Future delDownload(String id) async {
     final d = downloads();
     d.remove(id);
@@ -289,11 +302,22 @@ class Store {
   }
 }
 
-/* ======== التحميلات ======== */
+/* ======== مدير التحميلات (إيقاف مؤقت / استئناف / إلغاء) ======== */
 class Downloader {
   static final Dio _dio = Dio();
-  static final Map<String, CancelToken> _tasks = {};
+  static final Map<String, CancelToken> _tokens = {};
+  static final Map<String, bool> _paused = {};
+  static final Map<String, bool> _cancelled = {};
+  static final Map<String, int> _received = {};
+  static final Map<String, Movie> _movies = {};
   static final ValueNotifier<Map<String, double>> progress = ValueNotifier({});
+  static final ValueNotifier<int> tick = ValueNotifier(0);
+
+  static bool isActive(String id) => _tokens.containsKey(id);
+  static bool isPaused(String id) =>
+      _paused[id] == true && !_tokens.containsKey(id);
+  static Movie? movieOf(String id) => _movies[id];
+  static List<String> activeIds() => _movies.keys.toList();
 
   static Future<String> _dir() async {
     final base = await getExternalStorageDirectory();
@@ -302,34 +326,114 @@ class Downloader {
     return dir.path;
   }
 
-  static bool isActive(String id) => _tasks.containsKey(id);
-
   static Future start(Movie m) async {
-    if (isActive(m.id)) return;
+    final id = m.id;
+    if (isActive(id)) return;
+    if (isPaused(id)) return resume(id);
+    _movies[id] = m;
+    _paused[id] = false;
+    _cancelled[id] = false;
+    _received[id] = 0;
+    progress.value = {...progress.value, id: 0.0};
+    tick.value++;
+    await _run(m, 0);
+  }
+
+  static Future _run(Movie m, int offset) async {
+    final id = m.id;
     final token = CancelToken();
-    _tasks[m.id] = token;
+    _tokens[id] = token;
+    tick.value++;
+    String? path;
+    IOSink? sink;
     try {
       final name =
           m.title.replaceAll(RegExp(r'[^\w\u0600-\u06FF\- ]'), '').trim();
-      final path = '${await _dir()}/$name.mp4';
-      await _dio.download(m.videoUrl, path,
-          cancelToken: token,
-          onReceiveProgress: (a, b) {
-            if (b > 0) progress.value = {...progress.value, m.id: a / b};
-          });
+      path = '${await _dir()}/$name.mp4';
+      final file = File(path);
+      if (offset > 0 && !await file.exists()) offset = 0;
+      if (offset == 0 && await file.exists()) await file.delete();
+      sink = file.openWrite(mode: offset > 0 ? FileMode.append : FileMode.write);
+      final resp = await _dio.get<ResponseBody>(
+        m.videoUrl,
+        options: Options(
+            responseType: ResponseType.stream,
+            headers: offset > 0 ? {'Range': 'bytes=$offset-'} : null),
+        cancelToken: token,
+      );
+      final len =
+          int.tryParse(resp.headers.value('content-length') ?? '0') ?? 0;
+      final total = offset + len;
+      int received = offset;
+      await for (final chunk in resp.data!.stream) {
+        sink.add(chunk);
+        received += chunk.length;
+        _received[id] = received;
+        if (total > 0) {
+          final pct = received / total;
+          final last = progress.value[id] ?? 0;
+          if ((pct - last).abs() > 0.005 || pct >= 1) {
+            progress.value = {...progress.value, id: pct};
+          }
+        }
+      }
+      await sink.close();
       await Store.addDownload(m, path);
-    } catch (_) {}
-    _tasks.remove(m.id);
-    progress.value = {...progress.value}..remove(m.id);
+      _removeAll(id);
+    } catch (_) {
+      try {
+        await sink?.close();
+      } catch (_) {}
+      if (_cancelled[id] == true) {
+        if (path != null) {
+          final f = File(path);
+          if (await f.exists()) await f.delete();
+        }
+        _removeAll(id);
+      } else if (_paused[id] == true) {
+        _tokens.remove(id);
+        tick.value++;
+      } else {
+        if (path != null) {
+          final f = File(path);
+          if (await f.exists()) await f.delete();
+        }
+        _removeAll(id);
+      }
+    }
+  }
+
+  static void pause(String id) {
+    if (!isActive(id)) return;
+    _paused[id] = true;
+    _tokens.remove(id)?.cancel();
+    tick.value++;
+  }
+
+  static Future resume(String id) async {
+    final m = _movies[id];
+    if (m == null || isActive(id)) return;
+    _paused[id] = false;
+    _cancelled[id] = false;
+    tick.value++;
+    await _run(m, _received[id] ?? 0);
   }
 
   static void cancel(String id) {
-    _tasks.remove(id)?.cancel();
-    progress.value = {...progress.value}..remove(id);
+    _cancelled[id] = true;
+    _paused[id] = false;
+    _tokens.remove(id)?.cancel();
+    if (!isActive(id)) _removeAll(id);
+    tick.value++;
   }
 
-  static Future deleteFile(String path) async {
-    final f = File(path);
-    if (await f.exists()) await f.delete();
+  static void _removeAll(String id) {
+    _tokens.remove(id);
+    _paused.remove(id);
+    _cancelled.remove(id);
+    _received.remove(id);
+    _movies.remove(id);
+    progress.value = {...progress.value}..remove(id);
+    tick.value++;
   }
 }
