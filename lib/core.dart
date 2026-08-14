@@ -220,14 +220,22 @@ class Tg {
         .where((e) => e.isNotEmpty)
         .toList();
     final title = lines.isNotEmpty ? lines.first : 'فيديو #$mid';
-    var quality = serverQuality ?? '';
+    // ✨ إذا أرسل البوت "جودة أخرى" أو فارغ → نستخرجها من الوصف
+    var quality = (serverQuality == null ||
+            serverQuality.isEmpty ||
+            serverQuality == 'جودة أخرى')
+        ? ''
+        : serverQuality;
     var genres = <String>[];
     final desc = <String>[];
     for (final l in lines.skip(1)) {
-      final q = RegExp(r'(2160p|1080p|720p|480p|4k)', caseSensitive: false)
+      final q = RegExp(r'(2160p|1080p|720p|480p|360p|4k|2160|1080|720|480)',
+              caseSensitive: false)
           .firstMatch(l);
       if (q != null && quality.isEmpty) {
-        quality = q.group(1)!.toUpperCase();
+        var qq = q.group(1)!.toUpperCase();
+        if (!qq.endsWith('P') && !qq.contains('K')) qq += 'P';
+        quality = qq;
         continue;
       }
       if (genres.isEmpty && l.contains('|') && l.length < 60) {
@@ -705,7 +713,7 @@ class Downloader {
   }
 }
 
-/* ======== TMDB محسّن ======== */
+/* ======== TMDB محسّن (يستخرج الاسم الإنجليزي من الوصف) ======== */
 class Tmdb {
   static const String apiKey = '9ba4e29354937364c2202857afcd7f94';
   static final Dio _d = Dio(BaseOptions(
@@ -713,8 +721,7 @@ class Tmdb {
       receiveTimeout: const Duration(seconds: 8)));
 
   static String _cleanQuery(String title) {
-    var t = title.trim();
-    t = t.split('\n').first.trim();
+    var t = title.trim().split('\n').first.trim();
     t = t.replaceAll(RegExp(r'[\[\]()【】{}《》«»]'), ' ');
     t = t.replaceAll(RegExp(r'\b(19|20)\d{2}\b'), ' ');
     t = t.replaceAll(RegExp(
@@ -722,30 +729,39 @@ class Tmdb {
         caseSensitive: false), ' ');
     t = t.replaceAll(
         RegExp(r'(مترجم|مدبلج|مترجمة|مدبلجة|جودة|quality|فيلم|movie|film)',
-            caseSensitive: false),
-        ' ');
+            caseSensitive: false), ' ');
     t = t.replaceAll(RegExp(r'^[#\d.\-\s:]+'), '');
     t = t.replaceAll(RegExp(r'[\s_\-|:]+'), ' ').trim();
     return t;
   }
 
-  static Future<Map<String, dynamic>?> search(String title) async {
+  // ✨ استخراج اسم إنجليزي (كلمات تبدأ بحرف كبير) من أي نص
+  static String? _extractEnglish(String s) {
+    final m = RegExp(r"([A-Z][a-zA-Z0-9'\-]*(?:\s+[A-Z][a-zA-Z0-9'\-]*)+)")
+        .firstMatch(s);
+    final t = m?.group(1)?.trim();
+    return (t != null && t.length >= 3) ? t : null;
+  }
+
+  static String _englishOnly(String s) => s
+      .replaceAll(RegExp(r'[^\x00-\x7F\s]'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+
+  static Future<Map<String, dynamic>?> search(String title,
+      {String description = ''}) async {
     final queries = <String>[];
-
-    final q1 = _cleanQuery(title);
-    if (q1.length >= 2) queries.add(q1);
-
-    final m = RegExp(r'\(([^)]+)\)').firstMatch(title);
-    if (m != null) {
-      final inside = m.group(1)!.trim();
-      if (inside.length >= 2) queries.add(inside);
+    void addQ(String? q) {
+      q = (q ?? '').trim();
+      if (q.length >= 2 && !queries.contains(q)) queries.add(q);
     }
 
-    final engOnly = q1
-        .replaceAll(RegExp(r'[^\x00-\x7F\s]'), ' ')
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
-    if (engOnly.length >= 3 && engOnly != q1) queries.add(engOnly);
+    addQ(_cleanQuery(title));
+    final par = RegExp(r'\(([^)]+)\)').firstMatch(title);
+    if (par != null) addQ(par.group(1));
+    addQ(_extractEnglish(title));
+    addQ(_extractEnglish(description)); // ✨ الاسم الإنجليزي من الوصف
+    addQ(_englishOnly(_cleanQuery(title)));
 
     for (final q in queries) {
       try {
