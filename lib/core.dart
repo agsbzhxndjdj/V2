@@ -217,6 +217,7 @@ class Store {
   static List<Channel> channels() => _ch.values
       .map((e) => Channel.fromJson(Map<String, dynamic>.from(e)))
       .toList();
+
   static Future addChannel(Channel c) async {
     await _ch.put(c.username, c.toJson());
     tick.value++;
@@ -231,8 +232,10 @@ class Store {
   static List<Movie> moviesOf(String u) => ((_mv.get(u) as List?) ?? [])
       .map((e) => Movie.fromJson(Map<String, dynamic>.from(e)))
       .toList();
+
   static Future saveMovies(String u, List<Movie> l) =>
       _mv.put(u, l.map((e) => e.toJson()).toList());
+
   static List<Movie> all() => channels()
       .expand((c) => moviesOf(c.username))
       .toList()
@@ -242,7 +245,9 @@ class Store {
   static List<Movie> favorites() => ((_st.get('favorites') as List?) ?? [])
       .map((e) => Movie.fromJson(Map<String, dynamic>.from(e)))
       .toList();
+
   static bool isFav(String id) => favorites().any((e) => e.id == id);
+
   static Future toggleFav(Movie m) async {
     final f = favorites();
     if (f.any((e) => e.id == m.id)) {
@@ -258,6 +263,7 @@ class Store {
   static List<Movie> history() => ((_st.get('history') as List?) ?? [])
       .map((e) => Movie.fromJson(Map<String, dynamic>.from(e)))
       .toList();
+
   static Future markWatched(Movie m) async {
     final h = history()..removeWhere((e) => e.id == m.id);
     h.insert(0, m);
@@ -274,6 +280,7 @@ class Store {
   /* ======== موضع المشاهدة ======== */
   static Map<String, int> positions() =>
       Map<String, int>.from(_st.get('positions') ?? {});
+
   static Future savePosition(String movieId, int seconds) async {
     final p = positions();
     if (seconds > 10) {
@@ -287,6 +294,7 @@ class Store {
   /* ======== التحميلات المكتملة ======== */
   static Map<String, dynamic> downloads() =>
       Map<String, dynamic>.from(_st.get('downloads') ?? {});
+
   static Future addDownload(Movie m, String path) async {
     final d = downloads();
     d[m.id] = {...m.toJson(), 'path': path};
@@ -314,9 +322,12 @@ class Downloader {
   static final ValueNotifier<int> tick = ValueNotifier(0);
 
   static bool isActive(String id) => _tokens.containsKey(id);
+
   static bool isPaused(String id) =>
       _paused[id] == true && !_tokens.containsKey(id);
+
   static Movie? movieOf(String id) => _movies[id];
+
   static List<String> activeIds() => _movies.keys.toList();
 
   static Future<String> _dir() async {
@@ -324,10 +335,11 @@ class Downloader {
     final dir = Directory('${base!.path}/Movies');
     if (!await dir.exists()) await dir.create();
     return dir.path;
-    static Future deleteFile(String path) async {
+  }
+
+  static Future deleteFile(String path) async {
     final f = File(path);
     if (await f.exists()) await f.delete();
-    }
   }
 
   static Future start(Movie m) async {
@@ -357,7 +369,8 @@ class Downloader {
       final file = File(path);
       if (offset > 0 && !await file.exists()) offset = 0;
       if (offset == 0 && await file.exists()) await file.delete();
-      sink = file.openWrite(mode: offset > 0 ? FileMode.append : FileMode.write);
+      sink =
+          file.openWrite(mode: offset > 0 ? FileMode.append : FileMode.write);
       final resp = await _dio.get<ResponseBody>(
         m.videoUrl,
         options: Options(
@@ -389,19 +402,13 @@ class Downloader {
         await sink?.close();
       } catch (_) {}
       if (_cancelled[id] == true) {
-        if (path != null) {
-          final f = File(path);
-          if (await f.exists()) await f.delete();
-        }
+        if (path != null) await deleteFile(path);
         _removeAll(id);
       } else if (_paused[id] == true) {
         _tokens.remove(id);
         tick.value++;
       } else {
-        if (path != null) {
-          final f = File(path);
-          if (await f.exists()) await f.delete();
-        }
+        if (path != null) await deleteFile(path);
         _removeAll(id);
       }
     }
