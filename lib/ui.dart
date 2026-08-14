@@ -250,7 +250,7 @@ class _HomePageState extends State<HomePage> {
               : null),
       body: RefreshIndicator(
         onRefresh: _refresh,
-        child: ListView(children: [
+        child: ListView(controller: _scroll, children: [
           if (today != null) _todayBanner(today),
           if (cont.isNotEmpty) _row(Lang.t('continueWatching'), cont),
           _chips(genres.toList()),
