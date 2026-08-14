@@ -72,18 +72,13 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   final _search = TextEditingController();
   final _scroll = ScrollController();
-  bool _busy = false, _more = false, _searching = false;
+  bool _busy = false, _searching = false;
   String _fq = '', _fg = '';
   List<Movie> _popular = [], _reco = [];
-  final Map<String, int?> _cursor = {};
-  final Set<String> _done = {};
 
   @override
   void initState() {
     super.initState();
-    _scroll.addListener(() {
-      if (_scroll.position.pixels >= _scroll.position.maxScrollExtent - 300) _loadMore();
-    });
     if (Store.channels().isNotEmpty && Store.all().isEmpty) _refresh();
     _loadSmart();
     Downloader.wifiBlocked.addListener(_wifiToast);
@@ -116,41 +111,15 @@ class _HomePageState extends State<HomePage> {
     if (mounted) setState(() { _popular = pm; _reco = Smart.recommend(all); });
   }
 
+  /* ✨ تحميل القنوات كاملة (دفعات حتى النهاية) */
   Future _refresh() async {
     if (_busy) return;
     setState(() => _busy = true);
-    await Future.wait(Store.channels().map((c) async {
-      try {
-        final p = await Tg.fetchPage(c.username);
-        final old = Store.moviesOf(c.username);
-        final ids = p.movies.map((e) => e.msgId).toSet();
-        await Store.saveMovies(c.username, [...p.movies, ...old.where((e) => !ids.contains(e.msgId))]);
-        _cursor[c.username] = p.before;
-        if (p.before == null) _done.add(c.username);
-      } catch (_) {}
-    }));
+    for (final c in Store.channels()) {
+      await BulkLoader.loadAll(c.username);
+    }
     await _loadSmart();
     if (mounted) setState(() => _busy = false);
-  }
-
-  Future _loadMore() async {
-    if (_more) return;
-    setState(() => _more = true);
-    final chs = App.scope.value == 'all'
-        ? Store.channels()
-        : Store.channels().where((c) => c.username == App.scope.value).toList();
-    await Future.wait(chs.map((c) async {
-      if (_done.contains(c.username)) return;
-      try {
-        final p = await Tg.fetchPage(c.username, before: _cursor[c.username]);
-        if (p.movies.isEmpty || p.before == null) _done.add(c.username);
-        final old = Store.moviesOf(c.username);
-        final ids = old.map((e) => e.msgId).toSet();
-        await Store.saveMovies(c.username, [...old, ...p.movies.where((e) => !ids.contains(e.msgId))]);
-        _cursor[c.username] = p.before;
-      } catch (_) {}
-    }));
-    if (mounted) setState(() => _more = false);
   }
 
   List<Movie> get _base {
@@ -218,20 +187,31 @@ class _HomePageState extends State<HomePage> {
                       decoration: InputDecoration(hintText: Lang.t('searchHint'), prefixIcon: const Icon(Icons.search), filled: true, fillColor: const Color(0xFF151B23), border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none)))))
           : null),
       body: RefreshIndicator(onRefresh: _refresh,
-        child: ListView(controller: _scroll, children: [
-          if (today != null) _banner(today),
-          if (cont.isNotEmpty) _row(Lang.t('continueWatching'), cont),
-          if (_popular.isNotEmpty) _row(Lang.t('mostWatched'), _popular),
-          if (_reco.isNotEmpty) _row(Lang.t('recommended'), _reco),
-          _chips(genres.toList()),
-          movies.isEmpty
-              ? SizedBox(height: 200, child: Center(child: Text(Lang.t('noMovies'), style: const TextStyle(color: Colors.grey))))
-              : listView
-                  ? Column(children: movies.map((m) => MovieRowItem(m: m)).toList())
-                  : GridView.builder(shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), padding: const EdgeInsets.all(8),
-                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, childAspectRatio: 0.55),
-                      itemCount: movies.length, itemBuilder: (_, i) => MovieCard(m: movies[i])),
-        ])),
+        child: ValueListenableBuilder<String>(valueListenable: BulkLoader.status,
+          builder: (_, status, __) => Column(children: [
+            if (status.isNotEmpty)
+              Container(width: double.infinity, color: AppTheme.accent.withOpacity(0.15),
+                  padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
+                  child: Row(children: [
+                    SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.accent)),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(status, style: TextStyle(fontSize: 11, color: AppTheme.accent))),
+                  ])),
+            Expanded(child: ListView(controller: _scroll, children: [
+              if (today != null) _banner(today),
+              if (cont.isNotEmpty) _row(Lang.t('continueWatching'), cont),
+              if (_popular.isNotEmpty) _row(Lang.t('mostWatched'), _popular),
+              if (_reco.isNotEmpty) _row(Lang.t('recommended'), _reco),
+              _chips(genres.toList()),
+              movies.isEmpty
+                  ? SizedBox(height: 200, child: Center(child: Text(Lang.t('noMovies'), style: const TextStyle(color: Colors.grey))))
+                  : listView
+                      ? Column(children: movies.map((m) => MovieRowItem(m: m)).toList())
+                      : GridView.builder(shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), padding: const EdgeInsets.all(8),
+                          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, childAspectRatio: 0.55),
+                          itemCount: movies.length, itemBuilder: (_, i) => MovieCard(m: movies[i])),
+            ])),
+          ]))),
     );
   }
 
@@ -578,7 +558,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
             ]));
   }
 
-  /* ======== مبدل الجودات (الجديد) ======== */
+  /* ✨ مبدل الجودات */
   void _qualityMenu() {
     final m = widget.movie!;
     showModalBottomSheet(backgroundColor: const Color(0xFF151B23), context: context,
@@ -947,6 +927,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
       } else {
         await Store.addChannel(Channel(u, title: p.title, avatar: p.avatar));
         await Store.saveMovies(u, p.movies);
+        BulkLoader.loadAll(u); // ✨ تحميل القناة كاملة في الخلفية
         _ctrl.clear();
         App.scope.value = u;
         App.tab.value = 0;
