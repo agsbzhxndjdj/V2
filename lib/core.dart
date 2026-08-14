@@ -153,8 +153,20 @@ class Tg {
   }
 
   static String cleanUser(String s) {
-    final m = RegExp(r'(?:t\.me/|@)?([A-Za-z0-9_]{4,})').firstMatch(s.trim());
-    return m?.group(1) ?? '';
+    final u = s.trim();
+    // 1) رابط كامل: t.me/username أو t.me/s/username
+    final m = RegExp(r't\.me/(?:s/)?(?:c/)?([A-Za-z0-9_]{4,})').firstMatch(u);
+    if (m != null &&
+        !{'s', 'c', 'add', 'share', 'http', 'https', 'www'}
+            .contains(m.group(1)!.toLowerCase())) {
+      return m.group(1)!;
+    }
+    // 2) يوزر مع @
+    final a = RegExp(r'@([A-Za-z0-9_]{4,})').firstMatch(u);
+    if (a != null) return a.group(1)!;
+    // 3) يوزر فقط بدون رابط
+    final b = RegExp(r'^(?:https?://)?(?:www\.)?(?:t\.me/)?([A-Za-z0-9_]{4,})/?$').firstMatch(u);
+    return b?.group(1) ?? '';
   }
 
   static String _un(String s) => s
