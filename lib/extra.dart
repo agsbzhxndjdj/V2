@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
@@ -361,5 +362,39 @@ class Smart {
 
     scored.sort((a, b) => (b['s'] as double).compareTo(a['s'] as double));
     return scored.take(30).map((e) => e['m'] as Movie).toList();
+  }
+}
+
+/* ======== جلب معلومات الأفلام من TMDB ======== */
+class Tmdb {
+  static const String _apiKey = '9ba4e29354937364c2202857afcd7f94';
+
+  static Future<Map<String, dynamic>?> search(String title) async {
+    if (_apiKey.isEmpty) return null;
+
+    try {
+      final query = Uri.encodeComponent(title.replaceAll(RegExp(r'\(\d{4}\)'), '').trim());
+      final url = 'https://api.themoviedb.org/3/search/movie?api_key=$_apiKey&query=$query&language=ar';
+      final response = await Dio().get(url);
+
+      if (response.statusCode == 200) {
+        final data = response.data;
+        final results = data['results'] as List?;
+        if (results != null && results.isNotEmpty) {
+          final movie = results.first;
+          return {
+            'poster': movie['poster_path'] != null
+                ? 'https://image.tmdb.org/t/p/w500${movie['poster_path']}'
+                : null,
+            'overview': movie['overview'] ?? '',
+            'vote': (movie['vote_average'] ?? 0).toString(),
+            'year': movie['release_date'] != null
+                ? (movie['release_date'] as String).split('-').first
+                : '',
+          };
+        }
+      }
+    } catch (_) {}
+    return null;
   }
 }
