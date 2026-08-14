@@ -131,11 +131,10 @@ class SettingsPage extends StatelessWidget {
 
   Future _export(BuildContext context) async {
     final data = await Store.exportAll();
-    final s = jsonEncode(data);
     final dir = await getExternalStorageDirectory();
     final f = File('${dir!.path}/tele_cinema_backup.json');
-    await f.writeAsString(s);
-    await Clipboard.setData(ClipboardData(text: s));
+    await f.writeAsString(data);
+    await Clipboard.setData(ClipboardData(text: data));
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('${Lang.t('exportData')} ✅\n${f.path}')));
@@ -161,9 +160,7 @@ class SettingsPage extends StatelessWidget {
               FilledButton(
                   onPressed: () async {
                     try {
-                      final m = Map<String, dynamic>.from(
-                          jsonDecode(ctrl.text));
-                      await Store.importAll(m);
+                      await Store.importAll(ctrl.text);
                       if (context.mounted) Navigator.pop(context);
                     } catch (_) {}
                   },
@@ -179,18 +176,17 @@ class StatsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final st = Store.stats();
-    final secs = (st['seconds'] as int?) ?? 0;
-    final count = (st['count'] as int?) ?? 0;
-    final hours = (secs / 3600).toStringAsFixed(1);
-    final favs = Store.favorites().length;
-    final dls = Store.downloads().length;
+    final hours = (st['hours'] as int?) ?? 0;
+    final count = (st['movies'] as int?) ?? 0;
+    final favs = (st['favorites'] as int?) ?? 0;
+    final dls = (st['downloads'] as int?) ?? 0;
     final rts = Store.ratings().length;
     final ach = <Map<String, dynamic>>[
       {'icon': '🎬', 'on': count >= 1, 't': 'أول فيلم / First movie'},
       {'icon': '🔟', 'on': count >= 10, 't': '10 أفلام / 10 movies'},
       {'icon': '💯', 'on': count >= 50, 't': '50 فيلماً / 50 movies'},
-      {'icon': '⏰', 'on': secs >= 36000, 't': '10 ساعات / 10 hours'},
-      {'icon': '🌙', 'on': secs >= 108000, 't': '30 ساعة / 30 hours'},
+      {'icon': '⏰', 'on': hours >= 10, 't': '10 ساعات / 10 hours'},
+      {'icon': '🌙', 'on': hours >= 30, 't': '30 ساعة / 30 hours'},
       {'icon': '❤️', 'on': favs >= 5, 't': '5 مفضلة / 5 favorites'},
       {'icon': '⭐', 'on': rts >= 1, 't': 'أول تقييم / First rating'},
       {'icon': '📥', 'on': dls >= 1, 't': 'أول تحميل / First download'},
@@ -199,7 +195,7 @@ class StatsPage extends StatelessWidget {
         appBar: AppBar(title: Text(Lang.t('stats'))),
         body: ListView(padding: const EdgeInsets.all(16), children: [
           Row(children: [
-            _statCard(hours, Lang.t('hoursWatched')),
+            _statCard('$hours', Lang.t('hoursWatched')),
             const SizedBox(width: 10),
             _statCard('$count', Lang.t('moviesWatched')),
           ]),
@@ -317,4 +313,53 @@ void showPlaylistDialog(BuildContext context, Movie m) {
                                       Store.toggleInPlaylist(n, m));
                             }).toList())));
           }));
+}
+
+/* ======== الاقتراحات الذكية ======== */
+class Smart {
+  /* إزالة الأفلام المكررة (نفس العنوان) */
+  static List<Movie> dedup(List<Movie> src) {
+    final seen = <String>{};
+    final result = <Movie>[];
+    for (final m in src) {
+      final key = Search.norm(m.title);
+      if (key.isNotEmpty && !seen.contains(key)) {
+        seen.add(key);
+        result.add(m);
+      }
+    }
+    return result;
+  }
+
+  /* الأفلام الأكثر مشاهدة (حسب تكرارها في السجل) */
+  static Future<List<Map<String, dynamic>>> popular() async {
+    final counts = <String, int>{};
+    for (final h in Store.history()) {
+      counts[h.id] = (counts[h.id] ?? 0) + 1;
+    }
+    final sorted = counts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    return sorted.take(30).map((e) => {'key': e.key, 'count': e.value}).toList();
+  }
+
+  /* توصيات بناءً على سجل المشاهدة والتصنيفات */
+  static List<Movie> recommend(List<Movie> src) {
+    if (src.isEmpty) return [];
+    final h = Store.history();
+    if (h.isEmpty) return src.take(30).toList();
+
+    final genreW = <String, int>{};
+    for (final m in h) {
+      for (final g in m.genres) genreW[g] = (genreW[g] ?? 0) + 1;
+    }
+
+    final scored = src.map((m) {
+      double s = 0;
+      for (final g in m.genres) s += (genreW[g] ?? 0);
+      return {'m': m, 's': s};
+    }).toList();
+
+    scored.sort((a, b) => (b['s'] as double).compareTo(a['s'] as double));
+    return scored.take(30).map((e) => e['m'] as Movie).toList();
+  }
 }
