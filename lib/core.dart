@@ -573,3 +573,91 @@ class Downloader {
     tick.value++;
   }
 }
+/* ======== TMDB ======== */
+class Tmdb {
+  static final Dio _d = Dio(BaseOptions(
+      connectTimeout: const Duration(seconds: 8),
+      receiveTimeout: const Duration(seconds: 8)));
+  static String get key => (Store.prefs()['tmdb'] as String?) ?? '';
+
+  static Future<Map<String, dynamic>?> search(String title) async {
+    if (key.isEmpty) return null;
+    try {
+      final r = await _d.get('https://api.themoviedb.org/3/search/movie',
+          queryParameters: {
+            'api_key': key,
+            'query': title,
+            'include_adult': 'false'
+          });
+      final res = (r.data['results'] as List?);
+      if (res == null || res.isEmpty) return null;
+      final m = res[0];
+      return {
+        'vote': (m['vote_average'] ?? 0).toString(),
+        'overview': m['overview'] ?? '',
+        'poster': (m['poster_path'] != null &&
+                (m['poster_path'] as String).isNotEmpty)
+            ? 'https://image.tmdb.org/t/p/w500${m['poster_path']}'
+            : '',
+        'year': ((m['release_date'] ?? '').toString().split('-').first),
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
+/* ======== الذكاء: الأكثر مشاهدة + اقتراحات + دمج التكرار ======== */
+class Smart {
+  static final Dio _d = Dio(BaseOptions(
+      connectTimeout: const Duration(seconds: 8),
+      receiveTimeout: const Duration(seconds: 8)));
+
+  static Future<List<Map<String, dynamic>>> popular() async {
+    try {
+      final r = await _d.get('${ApiConfig.baseUrl}/popular',
+          queryParameters: {'key': ApiConfig.apiKey});
+      return List<Map<String, dynamic>>.from(
+          (r.data['items'] as List? ?? [])
+              .map((e) => Map<String, dynamic>.from(e)));
+    } catch (_) {
+      return [];
+    }
+  }
+
+  static List<Movie> dedup(List<Movie> l) {
+    final seen = <String>{};
+    final out = <Movie>[];
+    for (final m in l) {
+      final k = Search.norm(m.title);
+      if (k.isEmpty || seen.contains(k)) continue;
+      seen.add(k);
+      out.add(m);
+    }
+    return out;
+  }
+
+  static List<Movie> recommend(List<Movie> all) {
+    final taste = <String, int>{};
+    for (final m in [...Store.favorites(), ...Store.history().take(10)]) {
+      for (final g in m.genres) {
+        taste[g] = (taste[g] ?? 0) + 1;
+      }
+    }
+    if (taste.isEmpty) return [];
+    final watched = Store.history().map((e) => e.id).toSet();
+    final scored = all
+        .where((m) => !watched.contains(m.id))
+        .map((m) {
+          var s = 0;
+          for (final g in m.genres) {
+            s += taste[g] ?? 0;
+          }
+          return MapEntry(m, s);
+        })
+        .where((e) => e.value > 0)
+        .toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    return scored.take(10).map((e) => e.key).toList();
+  }
+}
