@@ -122,7 +122,7 @@ class SettingsPage extends StatelessWidget {
                   onTap: () => _export(context)),
               ListTile(
                   leading: const CircleAvatar(
-                      child: Icon(Icons.download_file, size: 20)),
+                      child: Icon(Icons.file_download, size: 20)),
                   title: Text(Lang.t('importData'),
                       style: const TextStyle(fontSize: 14)),
                   onTap: () => _importDialog(context)),
