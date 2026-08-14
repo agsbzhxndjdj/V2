@@ -28,11 +28,43 @@ jobs:
       - name: Generate android folder
         run: flutter create . --platforms android --no-overwrite
 
-      - name: Patch AndroidManifest (السماح بـ HTTP + اسم التطبيق)
+      - name: Patch AndroidManifest (HTTP + اسم التطبيق + Android TV)
         run: |
+          sed -i 's|<application|<uses-feature android:name="android.software.leanback" android:required="false" />\n    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />\n    <application|' android/app/src/main/AndroidManifest.xml
           sed -i 's/<application/<application android:usesCleartextTraffic="true"/' android/app/src/main/AndroidManifest.xml
           sed -i 's/android:label="[^"]*"/android:label="تلي سينما"/' android/app/src/main/AndroidManifest.xml
-          grep -n "usesCleartextTraffic" android/app/src/main/AndroidManifest.xml
+          sed -i 's|<category android:name="android.intent.category.LAUNCHER"/>|<category android:name="android.intent.category.LAUNCHER"/>\n                <category android:name="android.intent.category.LEANBACK_LAUNCHER"/>|' android/app/src/main/AndroidManifest.xml
+
+      - name: Patch MainActivity (كشف Android TV)
+        run: |
+          MAIN_ACT=$(find android/app/src/main -name "MainActivity.kt" | head -n 1)
+          PKG=$(head -n 1 "$MAIN_ACT")
+          cat > "$MAIN_ACT" <<EOF
+          $PKG
+
+          import android.content.pm.PackageManager
+          import io.flutter.embedding.android.FlutterActivity
+          import io.flutter.embedding.engine.FlutterEngine
+          import io.flutter.plugin.common.MethodChannel
+
+          class MainActivity : FlutterActivity() {
+              override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+                  super.configureFlutterEngine(flutterEngine)
+                  MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "tele_cinema/device")
+                      .setMethodCallHandler { call, result ->
+                          if (call.method == "isTv") {
+                              val pm = packageManager
+                              result.success(
+                                  pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
+                                      pm.hasSystemFeature(PackageManager.FEATURE_TELEVISION)
+                              )
+                          } else {
+                              result.notImplemented()
+                          }
+                      }
+              }
+          }
+          EOF
 
       - name: البناء
         run: |
