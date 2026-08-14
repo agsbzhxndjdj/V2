@@ -128,11 +128,9 @@ class Tg {
     return s.replaceFirst('@', '');
   }
 
-  /// رابط بث الفيديو من السيرفر
   static String streamUrl(String user, int msgId) =>
       '${ApiConfig.baseUrl}/stream/$user/$msgId?key=${ApiConfig.apiKey}';
 
-  /// رابط البوستر (thumbnail) من السيرفر
   static String posterUrl(String user, int msgId) =>
       '${ApiConfig.baseUrl}/poster/$user/$msgId?key=${ApiConfig.apiKey}';
 
@@ -269,6 +267,20 @@ class Store {
     tick.value++;
   }
 
+  /* ======== حفظ موضع المشاهدة ======== */
+  static Map<String, int> positions() =>
+      Map<String, int>.from(_st.get('positions') ?? {});
+
+  static Future savePosition(String movieId, int seconds) async {
+    final p = positions();
+    if (seconds > 10) {
+      p[movieId] = seconds;
+      await _st.put('positions', p);
+    }
+  }
+
+  static int getPosition(String movieId) => positions()[movieId] ?? 0;
+  
   static Future delDownload(String id) async {
     final d = downloads();
     d.remove(id);
