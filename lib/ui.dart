@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -235,8 +234,8 @@ class MovieCard extends StatelessWidget {
                   bottom: 30,
                   left: 6,
                   child: Text(m.duration,
-                      style:
-                          const TextStyle(fontSize: 9, color: Colors.white70))),
+                      style: const TextStyle(
+                          fontSize: 9, color: Colors.white70))),
             Positioned(
                 top: 4,
                 left: 4,
@@ -267,14 +266,17 @@ class MovieDetailsScreen extends StatelessWidget {
       decoration: BoxDecoration(
           color: const Color(0xFF1B2430),
           borderRadius: BorderRadius.circular(20)),
-      child: Text(t, style: const TextStyle(fontSize: 11, color: Color(0xFFE5B13D))));
+      child: Text(t,
+          style: const TextStyle(fontSize: 11, color: Color(0xFFE5B13D))));
 
   @override
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: const Color(0xFF0B0F14),
         body: Stack(fit: StackFit.expand, children: [
           if (m.poster.isNotEmpty)
-            CachedNetworkImage(imageUrl: m.poster, fit: BoxFit.cover,
+            CachedNetworkImage(
+                imageUrl: m.poster,
+                fit: BoxFit.cover,
                 errorWidget: (_, __, ___) => const SizedBox()),
           Container(
               decoration: const BoxDecoration(
@@ -382,7 +384,11 @@ class PlayerScreen extends StatefulWidget {
   final String? filePath;
   final Movie? movie;
   const PlayerScreen(
-      {super.key, required this.title, this.url, this.filePath, this.movie});
+      {super.key,
+      required this.title,
+      this.url,
+      this.filePath,
+      this.movie});
   @override
   State<PlayerScreen> createState() => _PlayerScreenState();
 }
@@ -464,8 +470,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   Widget build(BuildContext context) {
     final c = _c;
-    final dur = c?.value.isInitialized == true ? c!.value.duration : Duration.zero;
-    final pos = c?.value.isInitialized == true ? c!.value.position : Duration.zero;
+    final dur = c != null && c.value.isInitialized
+        ? c.value.duration
+        : Duration.zero;
+    final pos = c != null && c.value.isInitialized
+        ? c.value.position
+        : Duration.zero;
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(fit: StackFit.expand, children: [
@@ -494,7 +504,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
             _seekDelta = 0;
           },
           onHorizontalDragUpdate: (d) {
-            _seekDelta = ((d.localPosition.dx - (_start?.dx ?? 0)) * 0.1).round();
+            _seekDelta =
+                ((d.localPosition.dx - (_start?.dx ?? 0)) * 0.1).round();
             setState(() {
               _gmode = 1;
               _glabel =
@@ -535,22 +546,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   decoration: BoxDecoration(
                       color: Colors.black54,
                       borderRadius: BorderRadius.circular(16)),
-                  child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                            _gmode == 2
-                                ? Icons.volume_up
-                                : _gmode == 3
-                                    ? Icons.brightness_6
-                                    : Icons.fast_forward,
-                            color: Colors.amber,
-                            size: 34),
-                        const SizedBox(height: 6),
-                        Text(_glabel,
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 13)),
-                      ]))),
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(
+                        _gmode == 2
+                            ? Icons.volume_up
+                            : _gmode == 3
+                                ? Icons.brightness_6
+                                : Icons.fast_forward,
+                        color: Colors.amber,
+                        size: 34),
+                    const SizedBox(height: 6),
+                    Text(_glabel,
+                        style: const TextStyle(
+                            color: Colors.white, fontSize: 13)),
+                  ]))),
         if (_ready && c != null && c.value.isBuffering)
           const Center(
               child: CircularProgressIndicator(color: Color(0xFFE5B13D))),
@@ -602,44 +611,39 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                        Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              IconButton(
-                                  icon: const Icon(Icons.replay_10,
-                                      color: Colors.white70),
-                                  onPressed: () => _jump(-10)),
-                              IconButton(
-                                  icon: Icon(
-                                      c.value.isPlaying
-                                          ? Icons.pause
-                                          : Icons.play_arrow,
-                                      color: Colors.amber,
-                                      size: 44),
-                                  onPressed: () {
-                                    c.value.isPlaying ? c.pause() : c.play();
-                                    _poke();
-                                  }),
-                              IconButton(
-                                  icon: const Icon(Icons.forward_10,
-                                      color: Colors.white70),
-                                  onPressed: () => _jump(10)),
-                            ]),
+                        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                          IconButton(
+                              icon: const Icon(Icons.replay_10,
+                                  color: Colors.white70),
+                              onPressed: () => _jump(-10)),
+                          IconButton(
+                              icon: Icon(
+                                  c.value.isPlaying
+                                      ? Icons.pause
+                                      : Icons.play_arrow,
+                                  color: Colors.amber,
+                                  size: 44),
+                              onPressed: () {
+                                c.value.isPlaying ? c.pause() : c.play();
+                                _poke();
+                              }),
+                          IconButton(
+                              icon: const Icon(Icons.forward_10,
+                                  color: Colors.white70),
+                              onPressed: () => _jump(10)),
+                        ]),
                         Row(children: [
                           Padding(
-                              padding:
-                                  const EdgeInsets.symmetric(horizontal: 8),
+                              padding: const EdgeInsets.symmetric(horizontal: 8),
                               child: Text(_fmt(pos),
                                   style: const TextStyle(
-                                      fontSize: 11,
-                                      color: Colors.white70))),
+                                      fontSize: 11, color: Colors.white70))),
                           Expanded(
                               child: SliderTheme(
                                   data: SliderThemeData(
                                       activeTrackColor:
                                           const Color(0xFFE5B13D),
-                                      inactiveTrackColor:
-                                          Colors.white24,
+                                      inactiveTrackColor: Colors.white24,
                                       thumbColor: const Color(0xFFE5B13D),
                                       trackHeight: 3,
                                       thumbShape:
@@ -652,16 +656,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                       max: dur.inSeconds
                                           .toDouble()
                                           .clamp(1, 100000000),
-                                      onChanged: (v) => c.seekTo(
-                                          Duration(
-                                              seconds: v.toInt()))))),
+                                      onChanged: (v) =>
+                                          c.seekTo(Duration(seconds: v.toInt()))))),
                           Padding(
-                              padding:
-                                  const EdgeInsets.symmetric(horizontal: 8),
+                              padding: const EdgeInsets.symmetric(horizontal: 8),
                               child: Text(_fmt(dur),
                                   style: const TextStyle(
-                                      fontSize: 11,
-                                      color: Colors.white70))),
+                                      fontSize: 11, color: Colors.white70))),
                         ]),
                       ])))),
       ]),
@@ -807,7 +808,8 @@ class _ChannelsPageState extends State<ChannelsPage> {
                       suffixIcon: _busy
                           ? const Padding(
                               padding: EdgeInsets.all(12),
-                              child: CircularProgressIndicator(strokeWidth: 2))
+                              child:
+                                  CircularProgressIndicator(strokeWidth: 2))
                           : IconButton(
                               icon: const Icon(Icons.add_circle,
                                   color: Colors.amber),
@@ -862,8 +864,9 @@ class _ChannelsPageState extends State<ChannelsPage> {
               const Divider(),
               ...Store.channels().map((c) => ListTile(
                     leading: CircleAvatar(
-                        backgroundImage:
-                            c.avatar != null ? NetworkImage(c.avatar!) : null,
+                        backgroundImage: c.avatar != null
+                            ? NetworkImage(c.avatar!)
+                            : null,
                         child: c.avatar == null
                             ? const Icon(Icons.rss_feed, size: 18)
                             : null),
