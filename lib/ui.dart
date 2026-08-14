@@ -14,7 +14,7 @@ String _fmt(Duration d) {
       : '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
 }
 
-/* ======== الهيكل الرئيسي ======== */
+/* ======== الهيكل الرئيسي (5 تبويبات) ======== */
 class HomeShell extends StatelessWidget {
   const HomeShell({super.key});
   @override
@@ -23,6 +23,7 @@ class HomeShell extends StatelessWidget {
       builder: (ctx, tab, _) => Scaffold(
             body: IndexedStack(index: tab, children: const [
               HomePage(),
+              FavoritesPage(),
               HistoryPage(),
               DownloadsPage(),
               ChannelsPage()
@@ -35,6 +36,10 @@ class HomeShell extends StatelessWidget {
                     icon: Icon(Icons.movie_outlined),
                     selectedIcon: Icon(Icons.movie),
                     label: 'الأفلام'),
+                NavigationDestination(
+                    icon: Icon(Icons.favorite_outline),
+                    selectedIcon: Icon(Icons.favorite),
+                    label: 'المفضلة'),
                 NavigationDestination(
                     icon: Icon(Icons.history_outlined),
                     selectedIcon: Icon(Icons.history),
@@ -175,7 +180,7 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
-/* ======== بطاقة فيلم (مع بوستر) ======== */
+/* ======== بطاقة فيلم ======== */
 class MovieCard extends StatelessWidget {
   final Movie m;
   const MovieCard({super.key, required this.m});
@@ -245,18 +250,32 @@ class MovieCard extends StatelessWidget {
             Positioned(
                 top: 4,
                 left: 4,
-                child: ValueListenableBuilder<Map<String, double>>(
-                    valueListenable: Downloader.progress,
-                    builder: (_, prog, __) => prog.containsKey(m.id)
-                        ? SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2, value: prog[m.id]))
-                        : IconButton(
-                            icon: const Icon(Icons.download_for_offline,
-                                size: 20, color: Colors.white70),
-                            onPressed: () => Downloader.start(m)))),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  ValueListenableBuilder<int>(
+                      valueListenable: Store.tick,
+                      builder: (_, __, ___) => IconButton(
+                          icon: Icon(
+                              Store.isFav(m.id)
+                                  ? Icons.favorite
+                                  : Icons.favorite_border,
+                              size: 20,
+                              color: Store.isFav(m.id)
+                                  ? Colors.red
+                                  : Colors.white70),
+                          onPressed: () => Store.toggleFav(m))),
+                  ValueListenableBuilder<Map<String, double>>(
+                      valueListenable: Downloader.progress,
+                      builder: (_, prog, __) => prog.containsKey(m.id)
+                          ? SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, value: prog[m.id]))
+                          : IconButton(
+                              icon: const Icon(Icons.download_for_offline,
+                                  size: 20, color: Colors.white70),
+                              onPressed: () => Downloader.start(m))),
+                ])),
           ]),
         ),
       );
@@ -309,6 +328,17 @@ class MovieDetailsScreen extends StatelessWidget {
                           fontSize: 16, fontWeight: FontWeight.bold),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis)),
+              ValueListenableBuilder<int>(
+                  valueListenable: Store.tick,
+                  builder: (_, __, ___) => IconButton(
+                      icon: Icon(
+                          Store.isFav(m.id)
+                              ? Icons.favorite
+                              : Icons.favorite_border,
+                          color: Store.isFav(m.id)
+                              ? Colors.red
+                              : Colors.white70),
+                      onPressed: () => Store.toggleFav(m))),
             ]),
             const Spacer(),
             Container(
@@ -474,14 +504,12 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
         if (mounted) setState(() {});
       });
       await c.initialize();
-
       if (widget.movie != null) {
         final savedPos = Store.getPosition(widget.movie!.id);
         if (savedPos > 0) {
           await c.seekTo(Duration(seconds: savedPos));
         }
       }
-
       if (!mounted) {
         c.dispose();
         return;
@@ -747,6 +775,39 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   }
 }
 
+/* ======== المفضلة ======== */
+class FavoritesPage extends StatelessWidget {
+  const FavoritesPage({super.key});
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<int>(
+      valueListenable: Store.tick,
+      builder: (_, __, ___) {
+        final favs = Store.favorites();
+        return Scaffold(
+            appBar: AppBar(title: const Text('المفضلة')),
+            body: favs.isEmpty
+                ? const Center(
+                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(Icons.favorite_outline,
+                          size: 80, color: Colors.red),
+                      SizedBox(height: 16),
+                      Text('لا توجد أفلام مفضلة بعد',
+                          style: TextStyle(
+                              fontSize: 20, fontWeight: FontWeight.bold)),
+                      SizedBox(height: 8),
+                      Text('اضغط على القلب ❤️ في أي فيلم لإضافته هنا',
+                          style: TextStyle(color: Colors.grey)),
+                    ]))
+                : GridView.builder(
+                    padding: const EdgeInsets.all(8),
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 3, childAspectRatio: 0.55),
+                    itemCount: favs.length,
+                    itemBuilder: (_, i) => MovieCard(m: favs[i])));
+      });
+}
+
 /* ======== شاهدتها ======== */
 class HistoryPage extends StatelessWidget {
   const HistoryPage({super.key});
@@ -786,49 +847,123 @@ class HistoryPage extends StatelessWidget {
       });
 }
 
-/* ======== تحميلاتي ======== */
+/* ======== تحميلاتي (نشطة + مكتملة) ======== */
 class DownloadsPage extends StatelessWidget {
   const DownloadsPage({super.key});
+
+  Widget _activeTile(String id) {
+    final m = Downloader.movieOf(id);
+    if (m == null) return const SizedBox.shrink();
+    final p = Downloader.progress.value[id] ?? 0;
+    final paused = Downloader.isPaused(id);
+    return Card(
+      margin: const EdgeInsets.fromLTRB(10, 8, 10, 0),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Icon(
+                paused
+                    ? Icons.pause_circle_outline
+                    : Icons.downloading,
+                color: paused ? Colors.grey : const Color(0xFFE5B13D),
+                size: 22),
+            const SizedBox(width: 8),
+            Expanded(
+                child: Text(m.title,
+                    style: const TextStyle(
+                        fontSize: 13, fontWeight: FontWeight.bold),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis)),
+            Text('${(p * 100).round()}%',
+                style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFFE5B13D),
+                    fontWeight: FontWeight.bold)),
+          ]),
+          const SizedBox(height: 8),
+          LinearProgressIndicator(
+              value: p,
+              minHeight: 5,
+              backgroundColor: Colors.white12,
+              valueColor: const AlwaysStoppedAnimation(Color(0xFFE5B13D))),
+          const SizedBox(height: 6),
+          Row(children: [
+            Text(paused ? 'متوقف مؤقتاً' : 'جاري التحميل…',
+                style: const TextStyle(fontSize: 10, color: Colors.grey)),
+            const Spacer(),
+            IconButton(
+                tooltip: paused ? 'استئناف' : 'إيقاف مؤقت',
+                icon: Icon(paused ? Icons.play_arrow : Icons.pause,
+                    size: 22,
+                    color: paused ? Colors.green : Colors.amber),
+                onPressed: () =>
+                    paused ? Downloader.resume(id) : Downloader.pause(id)),
+            IconButton(
+                tooltip: 'إلغاء',
+                icon: const Icon(Icons.close, size: 22, color: Colors.red),
+                onPressed: () => Downloader.cancel(id)),
+          ]),
+        ]),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => ValueListenableBuilder<int>(
-      valueListenable: Store.tick,
-      builder: (_, __, ___) {
-        final items = Store.downloads().entries.toList();
-        return Scaffold(
-            appBar: AppBar(title: const Text('تحميلاتي')),
-            body: items.isEmpty
-                ? const Center(
-                    child: Text('لا توجد تحميلات',
-                        style: TextStyle(color: Colors.grey)))
-                : ListView.separated(
-                    itemCount: items.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
-                    itemBuilder: (_, i) {
-                      final e = items[i];
-                      final m =
-                          Movie.fromJson(Map<String, dynamic>.from(e.value));
-                      final path = e.value['path']?.toString() ?? '';
-                      return ListTile(
-                          leading: const CircleAvatar(
-                              child: Icon(Icons.download_done, size: 20)),
-                          title: Text(m.title,
-                              style: const TextStyle(fontSize: 13)),
-                          subtitle: Text(m.size.isEmpty ? path : m.size,
-                              style: const TextStyle(fontSize: 10)),
-                          onTap: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (_) => PlayerScreen(
-                                      title: m.title, filePath: path))),
-                          trailing: IconButton(
-                              icon: const Icon(Icons.delete_outline,
-                                  color: Colors.red, size: 20),
-                              onPressed: () async {
-                                await Downloader.deleteFile(path);
-                                await Store.delDownload(e.key);
-                              }));
-                    }));
-      });
+      valueListenable: Downloader.tick,
+      builder: (_, __, ___) => ValueListenableBuilder<Map<String, double>>(
+          valueListenable: Downloader.progress,
+          builder: (_, prog, __) => ValueListenableBuilder<int>(
+              valueListenable: Store.tick,
+              builder: (_, ___, ____) {
+                final active = Downloader.activeIds();
+                final items = Store.downloads().entries.toList();
+                return Scaffold(
+                    appBar: AppBar(title: const Text('تحميلاتي')),
+                    body: (active.isEmpty && items.isEmpty)
+                        ? const Center(
+                            child: Text('لا توجد تحميلات',
+                                style: TextStyle(color: Colors.grey)))
+                        : ListView(children: [
+                            ...active.map(_activeTile),
+                            if (active.isNotEmpty && items.isNotEmpty)
+                              const Padding(
+                                  padding: EdgeInsets.all(10),
+                                  child: Text('المكتملة',
+                                      style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey))),
+                            ...items.map((e) {
+                              final m = Movie.fromJson(
+                                  Map<String, dynamic>.from(e.value));
+                              final path =
+                                  e.value['path']?.toString() ?? '';
+                              return ListTile(
+                                  leading: const CircleAvatar(
+                                      child: Icon(Icons.download_done,
+                                          size: 20)),
+                                  title: Text(m.title,
+                                      style: const TextStyle(fontSize: 13)),
+                                  subtitle: Text(
+                                      m.size.isEmpty ? path : m.size,
+                                      style: const TextStyle(fontSize: 10)),
+                                  onTap: () => Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                          builder: (_) => PlayerScreen(
+                                              title: m.title,
+                                              filePath: path))),
+                                  trailing: IconButton(
+                                      icon: const Icon(Icons.delete_outline,
+                                          color: Colors.red, size: 20),
+                                      onPressed: () async {
+                                        await Downloader.deleteFile(path);
+                                        await Store.delDownload(e.key);
+                                      }));
+                            }),
+                          ]));
+              })));
 }
 
 /* ======== القنوات ======== */
