@@ -1,79 +1,86 @@
-name: Build Android APK
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+import 'core.dart';
+import 'lang.dart';
+import 'ui.dart';
+import 'tv.dart';
+import 'notify.dart';
 
-on:
-  push:
-    branches: [ main ]
-  workflow_dispatch:
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await Firebase.initializeApp();
+  } catch (_) {}
+  await Hive.initFlutter();
+  await Store.init();
+  await Notify.init();
+  Sync.onNewMovies = (n, t) => Notify.newMovies(n, t);
+  Sync.start();
+  Lang.locale.value = Store.locale;
+  runApp(const Root());
+}
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
+class Root extends StatelessWidget {
+  const Root({super.key});
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<String>(
+      valueListenable: Lang.locale,
+      builder: (_, lang, __) => MaterialApp(
+            title: Lang.t('appName'),
+            debugShowCheckedModeBanner: false,
+            locale: Locale(lang),
+            theme: AppTheme.build(Store.theme),
+            home: const Splash(),
+          ));
+}
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+class Splash extends StatefulWidget {
+  const Splash({super.key});
+  @override
+  State<Splash> createState() => _SplashState();
+}
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '17'
+class _SplashState extends State<Splash> {
+  Future<bool> _isTv() async {
+    try {
+      final v = await const MethodChannel('tele_cinema/device').invokeMethod<bool>('isTv');
+      return v ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
 
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.24.3'
-          channel: 'stable'
+  @override
+  void initState() {
+    super.initState();
+    Future.delayed(const Duration(milliseconds: 1500), () async {
+      if (!mounted) return;
+      final tv = await _isTv();
+      if (!mounted) return;
+      Navigator.pushReplacement(context,
+          MaterialPageRoute(builder: (_) => tv ? const TvHome() : const HomeShell()));
+    });
+  }
 
-      - name: Generate android folder
-        run: flutter create . --platforms android --no-overwrite
-
-      - name: Patch AndroidManifest (HTTP + اسم التطبيق + Android TV)
-        run: |
-          sed -i 's|<application|<uses-feature android:name="android.software.leanback" android:required="false" />\n    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />\n    <application|' android/app/src/main/AndroidManifest.xml
-          sed -i 's/<application/<application android:usesCleartextTraffic="true"/' android/app/src/main/AndroidManifest.xml
-          sed -i 's/android:label="[^"]*"/android:label="تلي سينما"/' android/app/src/main/AndroidManifest.xml
-          sed -i 's|<category android:name="android.intent.category.LAUNCHER"/>|<category android:name="android.intent.category.LAUNCHER"/>\n                <category android:name="android.intent.category.LEANBACK_LAUNCHER"/>|' android/app/src/main/AndroidManifest.xml
-
-      - name: Patch MainActivity (كشف Android TV)
-        run: |
-          MAIN_ACT=$(find android/app/src/main -name "MainActivity.kt" | head -n 1)
-          PKG=$(head -n 1 "$MAIN_ACT")
-          cat > "$MAIN_ACT" <<EOF
-          $PKG
-
-          import android.content.pm.PackageManager
-          import io.flutter.embedding.android.FlutterActivity
-          import io.flutter.embedding.engine.FlutterEngine
-          import io.flutter.plugin.common.MethodChannel
-
-          class MainActivity : FlutterActivity() {
-              override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
-                  super.configureFlutterEngine(flutterEngine)
-                  MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "tele_cinema/device")
-                      .setMethodCallHandler { call, result ->
-                          if (call.method == "isTv") {
-                              val pm = packageManager
-                              result.success(
-                                  pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
-                                      pm.hasSystemFeature(PackageManager.FEATURE_TELEVISION)
-                              )
-                          } else {
-                              result.notImplemented()
-                          }
-                      }
-              }
-          }
-          EOF
-
-      - name: البناء
-        run: |
-          flutter pub get
-          flutter pub run flutter_launcher_icons:main
-          flutter build apk --release
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: tele-cinema-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        backgroundColor: const Color(0xFF0B0F14),
+        body: Center(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ClipRRect(
+              borderRadius: BorderRadius.circular(28),
+              child: Image.asset('assets/iconic.png',
+                  width: 120, height: 120)),
+          const SizedBox(height: 18),
+          Text(Lang.t('appName'),
+              style: TextStyle(
+                  fontSize: 26,
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.accent)),
+          const SizedBox(height: 24),
+          CircularProgressIndicator(color: AppTheme.accent),
+        ])),
+      );
+}
