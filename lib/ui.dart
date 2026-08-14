@@ -287,7 +287,7 @@ class MovieCard extends StatelessWidget {
                   ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, value: prog[m.id]))
                   : IconButton(icon: const Icon(Icons.download_for_offline, size: 20, color: Colors.white70), onPressed: () => Downloader.start(m))),
             ])),
-          ]))));
+          ]));
 }
 
 /* ======== عنصر قائمة ======== */
