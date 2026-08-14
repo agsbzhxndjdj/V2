@@ -148,15 +148,13 @@ class Tg {
     for (final item in (data['messages'] as List? ?? [])) {
       if (item is! Map) continue;
       if (item['has_video'] != true) continue;
-      final mid =
-          (item['msg_id'] is num) ? (item['msg_id'] as num).toInt() : 0;
+      final mid = (item['msg_id'] is num) ? (item['msg_id'] as num).toInt() : 0;
       if (mid == 0) continue;
       final caption = (item['text'] ?? '').toString();
       final date =
           ((item['date'] is num) ? (item['date'] as num).toInt() : 0) * 1000;
       movies.add(_build(user, mid, caption, date,
-          (item['duration'] ?? '').toString(),
-          (item['size'] ?? '').toString()));
+          (item['duration'] ?? '').toString(), (item['size'] ?? '').toString()));
     }
     return Page(movies, null, title, avatar);
   }
@@ -215,7 +213,6 @@ class Store {
     _st = await Hive.openBox('state');
   }
 
-  /* ---- الإعدادات العامة ---- */
   static Map<String, dynamic> prefs() =>
       Map<String, dynamic>.from(_st.get('prefs') ?? {});
   static Future setPref(String k, dynamic v) async {
@@ -227,8 +224,7 @@ class Store {
 
   static String get locale => (prefs()['locale'] as String?) ?? 'ar';
   static String get theme => (prefs()['theme'] as String?) ?? 'gold';
-  static bool getBool(String k, [bool d = false]) =>
-      (prefs()[k] as bool?) ?? d;
+  static bool getBool(String k, [bool d = false]) => (prefs()[k] as bool?) ?? d;
 
   static List<Channel> channels() => _ch.values
       .map((e) => Channel.fromJson(Map<String, dynamic>.from(e)))
@@ -257,13 +253,11 @@ class Store {
       .toList()
         ..sort((a, b) => b.date.compareTo(a.date));
 
-  /* ======== المفضلة ======== */
+  /* ---- المفضلة ---- */
   static List<Movie> favorites() => ((_st.get('favorites') as List?) ?? [])
       .map((e) => Movie.fromJson(Map<String, dynamic>.from(e)))
       .toList();
-
   static bool isFav(String id) => favorites().any((e) => e.id == id);
-
   static Future toggleFav(Movie m) async {
     final f = favorites();
     if (f.any((e) => e.id == m.id)) {
@@ -275,13 +269,11 @@ class Store {
     tick.value++;
   }
 
-  /* ======== سأشاهده لاحقاً ======== */
+  /* ---- سأشاهده لاحقاً ---- */
   static List<Movie> watchLater() => ((_st.get('watchLater') as List?) ?? [])
       .map((e) => Movie.fromJson(Map<String, dynamic>.from(e)))
       .toList();
-
   static bool isLater(String id) => watchLater().any((e) => e.id == id);
-
   static Future toggleLater(Movie m) async {
     final f = watchLater();
     if (f.any((e) => e.id == m.id)) {
@@ -293,9 +285,8 @@ class Store {
     tick.value++;
   }
 
-  /* ======== التقييم ======== */
-  static Map<String, int> ratings() =>
-      Map<String, int>.from(_st.get('ratings') ?? {});
+  /* ---- التقييم ---- */
+  static Map<String, int> ratings() => Map<String, int>.from(_st.get('ratings') ?? {});
   static Future rate(String id, int stars) async {
     final r = ratings();
     if (stars <= 0) {
@@ -307,11 +298,10 @@ class Store {
     tick.value++;
   }
 
-  /* ======== سجل المشاهدة ======== */
+  /* ---- سجل المشاهدة ---- */
   static List<Movie> history() => ((_st.get('history') as List?) ?? [])
       .map((e) => Movie.fromJson(Map<String, dynamic>.from(e)))
       .toList();
-
   static Future markWatched(Movie m) async {
     if (getBool('incognito')) return;
     final h = history()..removeWhere((e) => e.id == m.id);
@@ -326,10 +316,9 @@ class Store {
     tick.value++;
   }
 
-  /* ======== موضع المشاهدة ======== */
+  /* ---- موضع المشاهدة ---- */
   static Map<String, int> positions() =>
       Map<String, int>.from(_st.get('positions') ?? {});
-
   static Future savePosition(String movieId, int seconds) async {
     final p = positions();
     if (seconds > 10) {
@@ -340,7 +329,7 @@ class Store {
 
   static int getPosition(String movieId) => positions()[movieId] ?? 0;
 
-  /* ======== القوائم المخصصة ======== */
+  /* ---- القوائم المخصصة ---- */
   static Map<String, dynamic> playlists() =>
       Map<String, dynamic>.from(_st.get('playlists') ?? {});
   static Future addPlaylist(String name) async {
@@ -375,17 +364,17 @@ class Store {
     tick.value++;
   }
 
-  /* ======== الإحصائيات ======== */
+  /* ---- الإحصائيات ---- */
   static Map<String, dynamic> stats() =>
       Map<String, dynamic>.from(_st.get('stats') ?? {});
   static Future addWatchSeconds(int s) async {
     final st = stats();
-    st['seconds'] = ((st['seconds'] as int?) ?? 0) + s;
+    st['seconds'] = ((st['seconds'] as int?) ?? 0) + 1;
     st['count'] = ((st['count'] as int?) ?? 0) + 1;
     await _st.put('stats', st);
   }
 
-  /* ======== النسخ الاحتياطي ======== */
+  /* ---- النسخ الاحتياطي ---- */
   static Future<Map<String, dynamic>> exportAll() async => {
         'channels': _ch.toMap(),
         'movies': _mv.toMap(),
@@ -404,10 +393,9 @@ class Store {
     tick.value++;
   }
 
-  /* ======== التحميلات المكتملة ======== */
+  /* ---- التحميلات المكتملة ---- */
   static Map<String, dynamic> downloads() =>
       Map<String, dynamic>.from(_st.get('downloads') ?? {});
-
   static Future addDownload(Movie m, String path) async {
     final d = downloads();
     d[m.id] = {...m.toJson(), 'path': path};
@@ -436,12 +424,9 @@ class Downloader {
   static final ValueNotifier<bool> wifiBlocked = ValueNotifier(false);
 
   static bool isActive(String id) => _tokens.containsKey(id);
-
   static bool isPaused(String id) =>
       _paused[id] == true && !_tokens.containsKey(id);
-
   static Movie? movieOf(String id) => _movies[id];
-
   static List<String> activeIds() => _movies.keys.toList();
 
   static Future<String> _dir() async {
@@ -488,14 +473,12 @@ class Downloader {
     String? path;
     IOSink? sink;
     try {
-      final name =
-          m.title.replaceAll(RegExp(r'[^\w\u0600-\u06FF\- ]'), '').trim();
+      final name = m.title.replaceAll(RegExp(r'[^\w\u0600-\u06FF\- ]'), '').trim();
       path = '${await _dir()}/$name.mp4';
       final file = File(path);
       if (offset > 0 && !await file.exists()) offset = 0;
       if (offset == 0 && await file.exists()) await file.delete();
-      sink =
-          file.openWrite(mode: offset > 0 ? FileMode.append : FileMode.write);
+      sink = file.openWrite(mode: offset > 0 ? FileMode.append : FileMode.write);
       final resp = await _dio.get<ResponseBody>(
         m.videoUrl,
         options: Options(
@@ -503,8 +486,7 @@ class Downloader {
             headers: offset > 0 ? {'Range': 'bytes=$offset-'} : null),
         cancelToken: token,
       );
-      final len =
-          int.tryParse(resp.headers.value('content-length') ?? '0') ?? 0;
+      final len = int.tryParse(resp.headers.value('content-length') ?? '0') ?? 0;
       final total = offset + len;
       int received = offset;
       await for (final chunk in resp.data!.stream) {
@@ -573,19 +555,19 @@ class Downloader {
     tick.value++;
   }
 }
-/* ======== TMDB ======== */
+
+/* ======== TMDB (المفتاح مدمج — يعمل للجميع تلقائياً) ======== */
 class Tmdb {
+  static const String apiKey = '9ba4e29354937364c2202857afcd7f94';
   static final Dio _d = Dio(BaseOptions(
       connectTimeout: const Duration(seconds: 8),
       receiveTimeout: const Duration(seconds: 8)));
-  static String get key => (Store.prefs()['tmdb'] as String?) ?? '';
 
   static Future<Map<String, dynamic>?> search(String title) async {
-    if (key.isEmpty) return null;
     try {
       final r = await _d.get('https://api.themoviedb.org/3/search/movie',
           queryParameters: {
-            'api_key': key,
+            'api_key': apiKey,
             'query': title,
             'include_adult': 'false'
           });
@@ -595,8 +577,7 @@ class Tmdb {
       return {
         'vote': (m['vote_average'] ?? 0).toString(),
         'overview': m['overview'] ?? '',
-        'poster': (m['poster_path'] != null &&
-                (m['poster_path'] as String).isNotEmpty)
+        'poster': (m['poster_path'] != null && (m['poster_path'] as String).isNotEmpty)
             ? 'https://image.tmdb.org/t/p/w500${m['poster_path']}'
             : '',
         'year': ((m['release_date'] ?? '').toString().split('-').first),
@@ -617,9 +598,8 @@ class Smart {
     try {
       final r = await _d.get('${ApiConfig.baseUrl}/popular',
           queryParameters: {'key': ApiConfig.apiKey});
-      return List<Map<String, dynamic>>.from(
-          (r.data['items'] as List? ?? [])
-              .map((e) => Map<String, dynamic>.from(e)));
+      return List<Map<String, dynamic>>.from((r.data['items'] as List? ?? [])
+          .map((e) => Map<String, dynamic>.from(e)));
     } catch (_) {
       return [];
     }
