@@ -7,8 +7,6 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:hive/hive.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 
 class App {
   static final ValueNotifier<String> scope = ValueNotifier('all');
@@ -173,7 +171,7 @@ class Tg {
     var v = RegExp(r'<video[^>]*src="([^"]+)"').firstMatch(part)?.group(1);
     if (v == null || v.isEmpty) v = RegExp(r"<video[^>]*src='([^']+)'").firstMatch(part)?.group(1);
     if (v == null || v.isEmpty) v = RegExp(r'<source[^>]*src="([^"]+)"').firstMatch(part)?.group(1);
-    if (v == null || v.isEmpty) v = RegExp(r'https?://[^"\'<>\s]+\.mp4[^"\'<>\s]*').firstMatch(part)?.group(0);
+    if (v == null || v.isEmpty) v = RegExp(r'''https?://[^"<>\s]+\.mp4[^"<>\s]*''').firstMatch(part)?.group(0);
     return (v == null || v.isEmpty) ? null : _un(v);
   }
 
@@ -265,7 +263,7 @@ class Tg {
         final pub = RegExp(r't\.me/([A-Za-z0-9_]+)/(\d+)').firstMatch(link);
         if (pub != null) url = 'https://t.me/s/${pub.group(1)}/${pub.group(2)}';
       }
-      if (url == null) continue; // روابط c/ الخاصة لا تُفتح بدون عضوية
+      if (url == null) continue;
       final html = await _fetchHtml(url);
       if (html.isEmpty) continue;
       final v = _videoOf(html);
@@ -302,18 +300,16 @@ class Tg {
     final movies = <Movie>[];
     final seen = <String, Movie>{};
     _RawMsg? lastMeta;
-    var linkBudget = 3; // حد أقصى 3 روابط لكل صفحة حتى لا يبطئ التحميل
+    var linkBudget = 3;
 
     for (final m in raw) {
       final hasMeta = m.poster != null || _isMetaCaption(m.caption);
 
       if (m.video != null) {
-        // رسالة فيها فيديو: نمط عادي أو نمط B (فيديو منفصل عن المعلومات)
         final meta = hasMeta ? m : (lastMeta ?? m);
         final key = Search.norm(_titleOf(meta.caption));
         final q = _qualityOf(m.caption);
         if (key.isNotEmpty && seen.containsKey(key)) {
-          // جودة إضافية لنفس الفيلم → خيار بديل في المشغل
           seen[key]!.alts.add({'q': q.isEmpty ? (m.size.isEmpty ? 'جودة أخرى' : m.size) : q, 'url': m.video!});
           continue;
         }
@@ -325,7 +321,6 @@ class Tg {
         movies.add(mv);
         if (hasMeta) lastMeta = m;
       } else if (hasMeta && m.links.isNotEmpty && linkBudget > 0) {
-        // نمط A / C: معلومات + رابط لرسالة الفيلم في قناة أخرى
         linkBudget--;
         final lv = await _fetchLinkedVideo(m.links);
         if (lv != null) {
@@ -514,6 +509,11 @@ class Store {
     tick.value++;
   }
 
+  static bool isInPlaylist(String name, Movie m) {
+    final l = playlists()[name] ?? [];
+    return l.any((e) => e.id == m.id);
+  }
+
   /* ---- السجل والتقييمات ---- */
   static List<Movie> history() => _list('history').map(Movie.fromJson).toList();
 
@@ -584,6 +584,45 @@ class Store {
       }
       tick.value++;
     } catch (_) {}
+  }
+
+  /* ---- دوال التوافق مع extra.dart ---- */
+  static Future setPref(String k, dynamic v) async {
+    if (v is bool) {
+      await _st.put(k, v);
+    } else {
+      await _st.put(k, v.toString());
+    }
+    tick.value++;
+  }
+
+  static Future<String> exportAll() async => exportJson();
+  static Future importAll(String s) => importJson(s);
+
+  static Map<String, dynamic> stats() {
+    final h = history();
+    final totalMinutes = watchSeconds ~/ 60;
+    return {
+      'hours': totalMinutes ~/ 60,
+      'minutes': totalMinutes,
+      'movies': h.length,
+      'favorites': favorites().length,
+      'downloads': downloads().length,
+      'channels': channels().length,
+    };
+  }
+
+  static Future toggleInPlaylist(String name, Movie m) async {
+    final all = Map<String, dynamic>.from((_st.get('playlists') as Map?) ?? {});
+    final l = (all[name] as List?) ?? [];
+    if (l.any((e) => Movie.fromJson(Map<String, dynamic>.from(e)).id == m.id)) {
+      l.removeWhere((e) => Movie.fromJson(Map<String, dynamic>.from(e)).id == m.id);
+    } else {
+      l.insert(0, m.toJson());
+    }
+    all[name] = l;
+    await _st.put('playlists', all);
+    tick.value++;
   }
 }
 
