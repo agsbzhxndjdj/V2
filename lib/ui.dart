@@ -111,7 +111,7 @@ class _HomePageState extends State<HomePage> {
     if (mounted) setState(() { _popular = pm; _reco = Smart.recommend(all); });
   }
 
-  /* ✨ تحميل القنوات كاملة (دفعات حتى النهاية) */
+  /* تحميل القنوات كاملة (دفعات حتى النهاية) */
   Future _refresh() async {
     if (_busy) return;
     setState(() => _busy = true);
@@ -323,7 +323,8 @@ class _MovieDetailsScreenState extends State<MovieDetailsScreen> {
   @override
   void initState() {
     super.initState();
-    Tmdb.search(widget.m.title).then((v) {
+    // ✨ تمرير الوصف لاستخراج الاسم الإنجليزي من الوصف
+    Tmdb.search(widget.m.title, description: widget.m.description).then((v) {
       if (mounted && v != null) setState(() => _tmdb = v);
     });
   }
@@ -558,7 +559,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
             ]));
   }
 
-  /* ✨ مبدل الجودات */
+  /* مبدل الجودات */
   void _qualityMenu() {
     final m = widget.movie!;
     showModalBottomSheet(backgroundColor: const Color(0xFF151B23), context: context,
@@ -927,7 +928,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
       } else {
         await Store.addChannel(Channel(u, title: p.title, avatar: p.avatar));
         await Store.saveMovies(u, p.movies);
-        BulkLoader.loadAll(u); // ✨ تحميل القناة كاملة في الخلفية
+        BulkLoader.loadAll(u); // تحميل القناة كاملة في الخلفية
         _ctrl.clear();
         App.scope.value = u;
         App.tab.value = 0;
