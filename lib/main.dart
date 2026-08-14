@@ -6,6 +6,7 @@ import 'core.dart';
 import 'lang.dart';
 import 'ui.dart';
 import 'tv.dart';
+import 'notify.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -14,6 +15,9 @@ Future<void> main() async {
   } catch (_) {}
   await Hive.initFlutter();
   await Store.init();
+  await Notify.init();
+  Sync.onNewMovies = (n, t) => Notify.newMovies(n, t);
+  Sync.start();
   Lang.locale.value = Store.locale;
   runApp(const Root());
 }
