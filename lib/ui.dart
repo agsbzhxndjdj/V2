@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:video_player/video_player.dart';
 import 'package:volume_controller/volume_controller.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import 'core.dart';
 
 String _fmt(Duration d) {
@@ -454,6 +455,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
+    WakelockPlus.enable();
     VolumeController().showSystemUI = false;
     VolumeController().listener((v) {
       if (mounted) setState(() => _vol = v);
@@ -554,6 +556,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     _savePosition();
     _posSaver?.cancel();
     VolumeController().removeListener();
+    WakelockPlus.disable();
     WidgetsBinding.instance.removeObserver(this);
     _hide?.cancel();
     _c?.dispose();
@@ -862,10 +865,7 @@ class DownloadsPage extends StatelessWidget {
         padding: const EdgeInsets.all(10),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            Icon(
-                paused
-                    ? Icons.pause_circle_outline
-                    : Icons.downloading,
+            Icon(paused ? Icons.pause_circle_outline : Icons.downloading,
                 color: paused ? Colors.grey : const Color(0xFFE5B13D),
                 size: 22),
             const SizedBox(width: 8),
@@ -895,8 +895,7 @@ class DownloadsPage extends StatelessWidget {
             IconButton(
                 tooltip: paused ? 'استئناف' : 'إيقاف مؤقت',
                 icon: Icon(paused ? Icons.play_arrow : Icons.pause,
-                    size: 22,
-                    color: paused ? Colors.green : Colors.amber),
+                    size: 22, color: paused ? Colors.green : Colors.amber),
                 onPressed: () =>
                     paused ? Downloader.resume(id) : Downloader.pause(id)),
             IconButton(
@@ -932,21 +931,18 @@ class DownloadsPage extends StatelessWidget {
                                   padding: EdgeInsets.all(10),
                                   child: Text('المكتملة',
                                       style: TextStyle(
-                                          fontSize: 12,
-                                          color: Colors.grey))),
+                                          fontSize: 12, color: Colors.grey))),
                             ...items.map((e) {
                               final m = Movie.fromJson(
                                   Map<String, dynamic>.from(e.value));
-                              final path =
-                                  e.value['path']?.toString() ?? '';
+                              final path = e.value['path']?.toString() ?? '';
                               return ListTile(
                                   leading: const CircleAvatar(
-                                      child: Icon(Icons.download_done,
-                                          size: 20)),
+                                      child:
+                                          Icon(Icons.download_done, size: 20)),
                                   title: Text(m.title,
                                       style: const TextStyle(fontSize: 13)),
-                                  subtitle: Text(
-                                      m.size.isEmpty ? path : m.size,
+                                  subtitle: Text(m.size.isEmpty ? path : m.size,
                                       style: const TextStyle(fontSize: 10)),
                                   onTap: () => Navigator.push(
                                       context,
@@ -1020,8 +1016,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
                       suffixIcon: _busy
                           ? const Padding(
                               padding: EdgeInsets.all(12),
-                              child:
-                                  CircularProgressIndicator(strokeWidth: 2))
+                              child: CircularProgressIndicator(strokeWidth: 2))
                           : IconButton(
                               icon: const Icon(Icons.add_circle,
                                   color: Colors.amber),
