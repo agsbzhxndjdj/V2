@@ -166,7 +166,7 @@ class _HomePageState extends State<HomePage> {
     }
     if (_fq.isNotEmpty) src = src.where((m) => m.quality == _fq).toList();
     if (_fg.isNotEmpty) src = src.where((m) => m.genres.contains(_fg)).toList();
-    return Search.run(src, _search.text);
+    return Sorter.apply(Search.run(src, _search.text), Store.sortMode);
   }
 
   void _random() {
@@ -174,6 +174,15 @@ class _HomePageState extends State<HomePage> {
     if (l.isEmpty) return;
     Navigator.push(context, MaterialPageRoute(builder: (_) => MovieDetailsScreen(m: l[Random().nextInt(l.length)])));
   }
+
+  PopupMenuItem<String> _sortItem(String v, String label) => PopupMenuItem(
+        value: v,
+        child: Row(children: [
+          if (Store.sortMode == v) Icon(Icons.check, color: AppTheme.accent, size: 18),
+          const SizedBox(width: 8),
+          Text(label, style: const TextStyle(fontSize: 13)),
+        ]),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -187,6 +196,19 @@ class _HomePageState extends State<HomePage> {
       appBar: AppBar(title: Text(Lang.t('appName')), actions: [
         IconButton(icon: const Icon(Icons.search), onPressed: () => setState(() => _searching = !_searching)),
         IconButton(icon: const Icon(Icons.casino), onPressed: _random),
+        PopupMenuButton<String>(
+          icon: const Icon(Icons.sort),
+          onSelected: (v) async { await Store.setSortMode(v); setState(() {}); },
+          itemBuilder: (_) => [
+            _sortItem('default', 'الأحدث أولاً'),
+            _sortItem('az', 'أبجدي'),
+            _sortItem('year_desc', 'السنة: الأحدث'),
+            _sortItem('year_asc', 'السنة: الأقدم'),
+            _sortItem('size_desc', 'الحجم: الأكبر'),
+            _sortItem('size_asc', 'الحجم: الأصغر'),
+            _sortItem('smart', '✨ ذكي (حسب ذوقك)'),
+          ],
+        ),
         IconButton(icon: const Icon(Icons.settings), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsPage()))),
         IconButton(icon: const Icon(Icons.refresh), onPressed: _refresh),
       ], bottom: _searching
@@ -556,6 +578,50 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
             ]));
   }
 
+  /* ======== مبدل الجودات (الجديد) ======== */
+  void _qualityMenu() {
+    final m = widget.movie!;
+    showModalBottomSheet(backgroundColor: const Color(0xFF151B23), context: context,
+        builder: (_) => Wrap(children: [
+              ...m.alts.map((a) => ListTile(
+                  title: Text(a['q'] ?? 'جودة أخرى', textAlign: TextAlign.center),
+                  onTap: () { Navigator.pop(context); _switchUrl(a['url']!); })),
+            ]));
+  }
+
+  Future _switchUrl(String url) async {
+    final old = _c;
+    final pos = (old != null && old.value.isInitialized) ? old.value.position : Duration.zero;
+    old?.pause();
+    setState(() { _ready = false; _ended = false; });
+    try {
+      final c = VideoPlayerController.networkUrl(Uri.parse(url));
+      c.addListener(() {
+        if (!mounted) return;
+        setState(() {});
+        final p = c.value.position.inSeconds;
+        if (p != _lastPos) { _lastPos = p; Store.addWatchSeconds(1); }
+        if (c.value.isInitialized && c.value.duration.inSeconds > 0 &&
+            c.value.position.inSeconds >= c.value.duration.inSeconds - 2 && !_ended) {
+          _ended = true;
+          c.pause();
+          if (widget.next != null) _showNext();
+        }
+      });
+      await c.initialize();
+      if (pos.inSeconds > 0) await c.seekTo(pos);
+      old?.dispose();
+      if (!mounted) return;
+      setState(() { _c = c; _ready = true; });
+      c.setVolume(1);
+      c.play();
+      _poke();
+    } catch (_) {
+      if (mounted) setState(() => _ready = true);
+      old?.play();
+    }
+  }
+
   @override
   void dispose() {
     _savePosition();
@@ -661,6 +727,8 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                     child: SafeArea(child: Row(children: [
                       IconButton(icon: const Icon(Icons.arrow_back, color: Colors.white), onPressed: () => Navigator.pop(context)),
                       Expanded(child: Text(widget.title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                      if (widget.movie != null && widget.movie!.alts.isNotEmpty)
+                        IconButton(icon: const Icon(Icons.hd, color: Colors.white70), onPressed: _qualityMenu),
                       IconButton(icon: Icon(_locked ? Icons.lock : Icons.lock_open, color: Colors.white70),
                           onPressed: () => setState(() { _locked = !_locked; _ui = false; })),
                       IconButton(icon: const Icon(Icons.speed, color: Colors.white70), onPressed: _speedMenu),
