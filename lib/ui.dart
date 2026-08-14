@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:async';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -7,6 +8,8 @@ import 'package:video_player/video_player.dart';
 import 'package:volume_controller/volume_controller.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'core.dart';
+import 'lang.dart';
+import 'extra.dart';
 
 String _fmt(Duration d) {
   final h = d.inHours, m = d.inMinutes % 60, s = d.inSeconds % 60;
@@ -15,7 +18,29 @@ String _fmt(Duration d) {
       : '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
 }
 
-/* ======== الهيكل الرئيسي (5 تبويبات) ======== */
+int _durSec(String s) {
+  final p = s.split(':');
+  try {
+    if (p.length == 3) {
+      return int.parse(p[0]) * 3600 + int.parse(p[1]) * 60 + int.parse(p[2]);
+    }
+    if (p.length == 2) return int.parse(p[0]) * 60 + int.parse(p[1]);
+  } catch (_) {}
+  return 0;
+}
+
+bool _isFinished(Movie m) {
+  final pos = Store.getPosition(m.id);
+  final tot = _durSec(m.duration);
+  return pos > 0 && tot > 0 && pos >= (tot * 0.95).toInt();
+}
+
+bool _inProgress(Movie m) {
+  final pos = Store.getPosition(m.id);
+  return pos > 60 && !_isFinished(m);
+}
+
+/* ======== الهيكل الرئيسي ======== */
 class HomeShell extends StatelessWidget {
   const HomeShell({super.key});
   @override
@@ -32,27 +57,27 @@ class HomeShell extends StatelessWidget {
             bottomNavigationBar: NavigationBar(
               selectedIndex: tab,
               onDestinationSelected: (i) => App.tab.value = i,
-              destinations: const [
+              destinations: [
                 NavigationDestination(
-                    icon: Icon(Icons.movie_outlined),
-                    selectedIcon: Icon(Icons.movie),
-                    label: 'الأفلام'),
+                    icon: const Icon(Icons.movie_outlined),
+                    selectedIcon: const Icon(Icons.movie),
+                    label: Lang.t('movies')),
                 NavigationDestination(
-                    icon: Icon(Icons.favorite_outline),
-                    selectedIcon: Icon(Icons.favorite),
-                    label: 'المفضلة'),
+                    icon: const Icon(Icons.favorite_outline),
+                    selectedIcon: const Icon(Icons.favorite),
+                    label: Lang.t('favorites')),
                 NavigationDestination(
-                    icon: Icon(Icons.history_outlined),
-                    selectedIcon: Icon(Icons.history),
-                    label: 'شاهدتها'),
+                    icon: const Icon(Icons.history_outlined),
+                    selectedIcon: const Icon(Icons.history),
+                    label: Lang.t('watched')),
                 NavigationDestination(
-                    icon: Icon(Icons.download_outlined),
-                    selectedIcon: Icon(Icons.download),
-                    label: 'تحميلاتي'),
+                    icon: const Icon(Icons.download_outlined),
+                    selectedIcon: const Icon(Icons.download),
+                    label: Lang.t('downloads')),
                 NavigationDestination(
-                    icon: Icon(Icons.rss_feed_outlined),
-                    selectedIcon: Icon(Icons.rss_feed),
-                    label: 'القنوات'),
+                    icon: const Icon(Icons.rss_feed_outlined),
+                    selectedIcon: const Icon(Icons.rss_feed),
+                    label: Lang.t('channels')),
               ],
             ),
           ));
@@ -69,11 +94,9 @@ class _HomePageState extends State<HomePage> {
   final _search = TextEditingController();
   final _scroll = ScrollController();
   bool _busy = false, _more = false, _searching = false;
+  String _fq = '', _fg = '';
   final Map<String, int?> _cursor = {};
   final Set<String> _done = {};
-
-  List<Movie> get _source =>
-      App.scope.value == 'all' ? Store.all() : Store.moviesOf(App.scope.value);
 
   @override
   void initState() {
@@ -84,10 +107,20 @@ class _HomePageState extends State<HomePage> {
       }
     });
     if (Store.channels().isNotEmpty && Store.all().isEmpty) _refresh();
+    Downloader.wifiBlocked.addListener(_wifiToast);
+  }
+
+  void _wifiToast() {
+    if (Downloader.wifiBlocked.value && mounted) {
+      Downloader.wifiBlocked.value = false;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(Lang.t('wifiNeeded'))));
+    }
   }
 
   @override
   void dispose() {
+    Downloader.wifiBlocked.removeListener(_wifiToast);
     _scroll.dispose();
     _search.dispose();
     super.dispose();
@@ -133,52 +166,203 @@ class _HomePageState extends State<HomePage> {
     if (mounted) setState(() => _more = false);
   }
 
+  List<Movie> get _base {
+    var src = App.scope.value == 'all'
+        ? Store.all()
+        : Store.moviesOf(App.scope.value);
+    if (Store.getBool('hideWatched')) {
+      src = src.where((m) => !_isFinished(m)).toList();
+    }
+    if (Store.getBool('kidsMode')) {
+      src = src.where((m) {
+        final g = m.genres.join(' ').toLowerCase();
+        return !g.contains('رعب') &&
+            !g.contains('horror') &&
+            !g.contains('جريم') &&
+            !g.contains('crime') &&
+            !g.contains('إثار') &&
+            !g.contains('thriller');
+      }).toList();
+    }
+    if (_fq.isNotEmpty) src = src.where((m) => m.quality == _fq).toList();
+    if (_fg.isNotEmpty) {
+      src = src.where((m) => m.genres.contains(_fg)).toList();
+    }
+    return Search.run(src, _search.text);
+  }
+
+  void _random() {
+    final l = _base;
+    if (l.isEmpty) return;
+    final m = l[Random().nextInt(l.length)];
+    Navigator.push(context,
+        MaterialPageRoute(builder: (_) => MovieDetailsScreen(m: m)));
+  }
+
+  Widget _ph() => Container(
+      color: const Color(0xFF1B2430),
+      child: const Center(
+          child: Icon(Icons.movie_filter, size: 30, color: Colors.amber)));
+
   @override
   Widget build(BuildContext context) {
-    final movies = Search.run(_source, _search.text);
+    final movies = _base;
+    final cont = Store.all().where(_inProgress).toList();
+    final genres = <String>{};
+    for (final m in movies) {
+      genres.addAll(m.genres.take(3));
+    }
+    final today = movies.isEmpty
+        ? null
+        : movies[(DateTime.now().millisecondsSinceEpoch ~/ 86400000) %
+            movies.length];
+    final listView = Store.getBool('listView');
     return Scaffold(
-      appBar: AppBar(title: const Text('تلي سينما'), actions: [
-        IconButton(
-            icon: const Icon(Icons.search),
-            onPressed: () => setState(() => _searching = !_searching)),
-        IconButton(icon: const Icon(Icons.refresh), onPressed: _refresh),
-      ], bottom: _searching
-          ? PreferredSize(
-              preferredSize: const Size.fromHeight(56),
-              child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-                  child: TextField(
-                      controller: _search,
-                      onChanged: (_) => setState(() {}),
-                      decoration: InputDecoration(
-                          hintText: 'ابحث عن فيلم…',
-                          prefixIcon: const Icon(Icons.search),
-                          filled: true,
-                          fillColor: const Color(0xFF151B23),
-                          border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              borderSide: BorderSide.none)))))
-          : null),
+      appBar: AppBar(
+          title: Text(Lang.t('appName')),
+          actions: [
+            IconButton(
+                icon: const Icon(Icons.search),
+                onPressed: () => setState(() => _searching = !_searching)),
+            IconButton(icon: const Icon(Icons.casino), onPressed: _random),
+            IconButton(
+                icon: const Icon(Icons.settings),
+                onPressed: () => Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const SettingsPage()))),
+            IconButton(icon: const Icon(Icons.refresh), onPressed: _refresh),
+          ],
+          bottom: _searching
+              ? PreferredSize(
+                  preferredSize: const Size.fromHeight(56),
+                  child: Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+                      child: TextField(
+                          controller: _search,
+                          onChanged: (_) => setState(() {}),
+                          decoration: InputDecoration(
+                              hintText: Lang.t('searchHint'),
+                              prefixIcon: const Icon(Icons.search),
+                              filled: true,
+                              fillColor: const Color(0xFF151B23),
+                              border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                  borderSide: BorderSide.none)))))
+              : null),
       body: RefreshIndicator(
         onRefresh: _refresh,
-        child: movies.isEmpty
-            ? ListView(children: const [
-                SizedBox(height: 150),
-                Center(
-                    child: Text('لا توجد أفلام بعد — أضف قناة من تبويب القنوات',
-                        style: TextStyle(color: Colors.grey)))
-              ])
-            : GridView.builder(
-                controller: _scroll,
-                padding: const EdgeInsets.all(8),
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 3, childAspectRatio: 0.55),
-                itemCount: movies.length,
-                itemBuilder: (_, i) => MovieCard(m: movies[i]),
-              ),
+        child: ListView(children: [
+          if (today != null) _todayBanner(today),
+          if (cont.isNotEmpty) _row(Lang.t('continueWatching'), cont),
+          _chips(genres.toList()),
+          movies.isEmpty
+              ? SizedBox(
+                  height: 200,
+                  child: Center(
+                      child: Text(Lang.t('noMovies'),
+                          style: const TextStyle(color: Colors.grey))))
+              : listView
+                  ? Column(
+                      children: movies
+                          .map((m) => MovieRowItem(m: m))
+                          .toList())
+                  : GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      controller: null,
+                      padding: const EdgeInsets.all(8),
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 3, childAspectRatio: 0.55),
+                      itemCount: movies.length,
+                      itemBuilder: (_, i) => MovieCard(m: movies[i]),
+                    ),
+        ]),
       ),
     );
   }
+
+  Widget _todayBanner(Movie m) => Padding(
+      padding: const EdgeInsets.all(10),
+      child: InkWell(
+          onTap: () => Navigator.push(context,
+              MaterialPageRoute(builder: (_) => MovieDetailsScreen(m: m))),
+          child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                  gradient: LinearGradient(colors: [
+                    AppTheme.accent.withOpacity(0.35),
+                    Colors.transparent
+                  ]),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppTheme.accent.withOpacity(0.5))),
+              child: Row(children: [
+                Icon(Icons.wb_sunny, color: AppTheme.accent),
+                const SizedBox(width: 10),
+                Expanded(
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                      Text(Lang.t('todayPick'),
+                          style: TextStyle(
+                              fontSize: 11, color: AppTheme.accent)),
+                      Text(m.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontWeight: FontWeight.bold)),
+                    ])),
+                const Icon(Icons.chevron_right),
+              ]))));
+
+  Widget _row(String title, List<Movie> list) => Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                child: Text(title,
+                    style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.accent))),
+            SizedBox(
+                height: 210,
+                child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: list.length,
+                    itemBuilder: (_, i) =>
+                        SizedBox(width: 130, child: MovieCard(m: list[i])))),
+          ]);
+
+  Widget _chips(List<String> genres) => Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Column(children: [
+        SizedBox(
+            height: 36,
+            child: ListView(scrollDirection: Axis.horizontal, children: [
+              const SizedBox(width: 10),
+              _chip(Lang.t('all'), _fq == '', () => setState(() => _fq = '')),
+              ...['1080P', '720P', '480P'].map(
+                  (q) => _chip(q, _fq == q, () => setState(() => _fq = q))),
+              const SizedBox(width: 10),
+            ])),
+        if (genres.isNotEmpty)
+          SizedBox(
+              height: 36,
+              child: ListView(scrollDirection: Axis.horizontal, children: [
+                const SizedBox(width: 10),
+                _chip(Lang.t('all'), _fg == '', () => setState(() => _fg = '')),
+                ...genres.take(12).map((g) =>
+                    _chip(g, _fg == g, () => setState(() => _fg = g))),
+                const SizedBox(width: 10),
+              ])),
+      ]));
+
+  Widget _chip(String t, bool on, VoidCallback f) => Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 3),
+      child: FilterChip(
+          label: Text(t, style: const TextStyle(fontSize: 11)),
+          selected: on,
+          onSelected: (_) => f(),
+          selectedColor: AppTheme.accent.withOpacity(0.4)));
 }
 
 /* ======== بطاقة فيلم ======== */
@@ -202,11 +386,8 @@ class MovieCard extends StatelessWidget {
           child: Stack(fit: StackFit.expand, children: [
             m.poster.isNotEmpty
                 ? CachedNetworkImage(
-                    key: ValueKey('poster_${m.id}_${Store.tick.value}'),
                     imageUrl: m.poster,
                     fit: BoxFit.cover,
-                    fadeInDuration: const Duration(milliseconds: 300),
-                    fadeOutDuration: const Duration(milliseconds: 200),
                     placeholder: (_, __) => _ph(),
                     errorWidget: (_, __, ___) => _ph())
                 : _ph(),
@@ -234,7 +415,7 @@ class MovieCard extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
-                          color: Colors.amber,
+                          color: AppTheme.accent,
                           borderRadius: BorderRadius.circular(6)),
                       child: Text(m.quality,
                           style: const TextStyle(
@@ -246,8 +427,18 @@ class MovieCard extends StatelessWidget {
                   bottom: 30,
                   left: 6,
                   child: Text(m.duration,
-                      style: const TextStyle(
-                          fontSize: 9, color: Colors.white70))),
+                      style: const TextStyle(fontSize: 9, color: Colors.white70))),
+            if (_inProgress(m))
+              Positioned(
+                  left: 6,
+                  right: 6,
+                  bottom: 0,
+                  child: LinearProgressIndicator(
+                      value: Store.getPosition(m.id) /
+                          max(1, _durSec(m.duration)),
+                      minHeight: 3,
+                      valueColor: AlwaysStoppedAnimation(AppTheme.accent),
+                      backgroundColor: Colors.black54)),
             Positioned(
                 top: 4,
                 left: 4,
@@ -282,7 +473,41 @@ class MovieCard extends StatelessWidget {
       );
 }
 
-/* ======== شاشة تفاصيل الفيلم ======== */
+/* ======== عنصر قائمة ======== */
+class MovieRowItem extends StatelessWidget {
+  final Movie m;
+  const MovieRowItem({super.key, required this.m});
+  @override
+  Widget build(BuildContext context) => ListTile(
+      onTap: () => Navigator.push(context,
+          MaterialPageRoute(builder: (_) => MovieDetailsScreen(m: m))),
+      leading: ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: m.poster.isNotEmpty
+              ? CachedNetworkImage(
+                  imageUrl: m.poster,
+                  width: 55,
+                  height: 80,
+                  fit: BoxFit.cover,
+                  errorWidget: (_, __, ___) => const Icon(Icons.movie))
+              : const Icon(Icons.movie)),
+      title: Text(m.title, style: const TextStyle(fontSize: 13)),
+      subtitle: Text(
+          [m.quality, m.duration, m.size]
+              .where((e) => e.isNotEmpty)
+              .join(' • '),
+          style: const TextStyle(fontSize: 10)),
+      trailing: ValueListenableBuilder<int>(
+          valueListenable: Store.tick,
+          builder: (_, __, ___) => IconButton(
+              icon: Icon(
+                  Store.isFav(m.id) ? Icons.favorite : Icons.favorite_border,
+                  size: 20,
+                  color: Store.isFav(m.id) ? Colors.red : Colors.grey),
+              onPressed: () => Store.toggleFav(m))));
+}
+
+/* ======== شاشة التفاصيل ======== */
 class MovieDetailsScreen extends StatelessWidget {
   final Movie m;
   const MovieDetailsScreen({super.key, required this.m});
@@ -293,7 +518,7 @@ class MovieDetailsScreen extends StatelessWidget {
           color: const Color(0xFF1B2430),
           borderRadius: BorderRadius.circular(20)),
       child: Text(t,
-          style: const TextStyle(fontSize: 11, color: Color(0xFFE5B13D))));
+          style: TextStyle(fontSize: 11, color: AppTheme.accent)));
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -301,11 +526,8 @@ class MovieDetailsScreen extends StatelessWidget {
         body: Stack(fit: StackFit.expand, children: [
           if (m.poster.isNotEmpty)
             CachedNetworkImage(
-                key: ValueKey('details_${m.id}_${Store.tick.value}'),
                 imageUrl: m.poster,
                 fit: BoxFit.cover,
-                fadeInDuration: const Duration(milliseconds: 300),
-                fadeOutDuration: const Duration(milliseconds: 200),
                 errorWidget: (_, __, ___) => const SizedBox()),
           Container(
               decoration: const BoxDecoration(
@@ -329,6 +551,22 @@ class MovieDetailsScreen extends StatelessWidget {
                           fontSize: 16, fontWeight: FontWeight.bold),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis)),
+              IconButton(
+                  icon: const Icon(Icons.ondemand_video,
+                      color: Colors.redAccent),
+                  onPressed: () => Navigator.push(context, MaterialPageRoute(
+                      builder: (_) => TrailerScreen(query: m.title)))),
+              ValueListenableBuilder<int>(
+                  valueListenable: Store.tick,
+                  builder: (_, __, ___) => IconButton(
+                      icon: Icon(
+                          Store.isLater(m.id)
+                              ? Icons.bookmark
+                              : Icons.bookmark_border,
+                          color: Store.isLater(m.id)
+                              ? AppTheme.accent
+                              : Colors.white70),
+                      onPressed: () => Store.toggleLater(m))),
               ValueListenableBuilder<int>(
                   valueListenable: Store.tick,
                   builder: (_, __, ___) => IconButton(
@@ -336,9 +574,8 @@ class MovieDetailsScreen extends StatelessWidget {
                           Store.isFav(m.id)
                               ? Icons.favorite
                               : Icons.favorite_border,
-                          color: Store.isFav(m.id)
-                              ? Colors.red
-                              : Colors.white70),
+                          color:
+                              Store.isFav(m.id) ? Colors.red : Colors.white70),
                       onPressed: () => Store.toggleFav(m))),
             ]),
             const Spacer(),
@@ -352,6 +589,27 @@ class MovieDetailsScreen extends StatelessWidget {
                         style: const TextStyle(
                             fontSize: 22, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 8),
+                    ValueListenableBuilder<int>(
+                        valueListenable: Store.tick,
+                        builder: (_, __, ___) => Row(children: [
+                          ...List.generate(
+                              5,
+                              (i) => IconButton(
+                                  icon: Icon(
+                                      i < (Store.ratings()[m.id] ?? 0)
+                                          ? Icons.star
+                                          : Icons.star_border,
+                                      size: 22,
+                                      color: AppTheme.accent),
+                                  onPressed: () =>
+                                      Store.rate(m.id, i + 1))),
+                          const Spacer(),
+                          IconButton(
+                              icon: const Icon(Icons.playlist_add,
+                                  color: Colors.white70),
+                              onPressed: () =>
+                                  showPlaylistDialog(context, m)),
+                        ])),
                     Wrap(spacing: 8, runSpacing: 6, children: [
                       if (m.quality.isNotEmpty) _chip(m.quality),
                       if (m.duration.isNotEmpty) _chip(m.duration),
@@ -361,7 +619,7 @@ class MovieDetailsScreen extends StatelessWidget {
                     if (m.description.isNotEmpty) ...[
                       const SizedBox(height: 12),
                       ConstrainedBox(
-                          constraints: const BoxConstraints(maxHeight: 140),
+                          constraints: const BoxConstraints(maxHeight: 120),
                           child: SingleChildScrollView(
                               child: Text(m.description,
                                   style: TextStyle(
@@ -381,9 +639,9 @@ class MovieDetailsScreen extends StatelessWidget {
                                           url: m.videoUrl,
                                           movie: m))),
                               icon: const Icon(Icons.play_arrow),
-                              label: const Text('تشغيل'),
+                              label: Text(Lang.t('play')),
                               style: FilledButton.styleFrom(
-                                  backgroundColor: const Color(0xFFE5B13D),
+                                  backgroundColor: AppTheme.accent,
                                   foregroundColor: Colors.black,
                                   minimumSize: const Size.fromHeight(52),
                                   shape: RoundedRectangleBorder(
@@ -392,20 +650,21 @@ class MovieDetailsScreen extends StatelessWidget {
                       const SizedBox(width: 10),
                       Expanded(
                           child: OutlinedButton.icon(
-                              onPressed: () {
-                                Downloader.start(m);
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                        content: Text(
-                                            'بدأ التحميل — تابعه في تبويب تحميلاتي')));
+                              onPressed: () async {
+                                await Downloader.start(m);
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                          content:
+                                              Text(Lang.t('startedDl'))));
+                                }
                               },
                               icon: const Icon(Icons.download),
-                              label: const Text('تحميل'),
+                              label: Text(Lang.t('download')),
                               style: OutlinedButton.styleFrom(
                                   minimumSize: const Size.fromHeight(52),
-                                  foregroundColor: const Color(0xFFE5B13D),
-                                  side: const BorderSide(
-                                      color: Color(0xFFE5B13D)),
+                                  foregroundColor: AppTheme.accent,
+                                  side: BorderSide(color: AppTheme.accent),
                                   shape: RoundedRectangleBorder(
                                       borderRadius:
                                           BorderRadius.circular(14))))),
@@ -417,18 +676,20 @@ class MovieDetailsScreen extends StatelessWidget {
       );
 }
 
-/* ======== المشغل الاحترافي ======== */
+/* ======== المشغل ======== */
 class PlayerScreen extends StatefulWidget {
   final String title;
   final String? url;
   final String? filePath;
   final Movie? movie;
+  final Movie? next;
   const PlayerScreen(
       {super.key,
       required this.title,
       this.url,
       this.filePath,
-      this.movie});
+      this.movie,
+      this.next});
   @override
   State<PlayerScreen> createState() => _PlayerScreenState();
 }
@@ -436,14 +697,15 @@ class PlayerScreen extends StatefulWidget {
 class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver {
   VideoPlayerController? _c;
   bool _ready = false, _err = false, _ui = true;
-  Timer? _hide;
-  Timer? _posSaver;
+  bool _locked = false, _audioOnly = false, _ended = false;
+  Timer? _hide, _posSaver, _sleep;
   bool _isLandscape = true;
   Offset? _start;
   int _gmode = 0;
   String _glabel = '';
   double _vol = 1.0, _bright = 1.0;
   int _seekBase = 0, _seekDelta = 0;
+  int _lastPos = 0;
 
   @override
   void initState() {
@@ -462,7 +724,9 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     });
     _init();
     _poke();
-    _startPositionSaver();
+    _posSaver = Timer.periodic(const Duration(seconds: 5), (_) {
+      _savePosition();
+    });
   }
 
   @override
@@ -473,17 +737,11 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       _c?.pause();
     } else if (state == AppLifecycleState.resumed) {
       final c = _c;
-      if (c != null && c.value.isInitialized) {
+      if (c != null && c.value.isInitialized && !_audioOnly) {
         c.play();
         _poke();
       }
     }
-  }
-
-  void _startPositionSaver() {
-    _posSaver = Timer.periodic(const Duration(seconds: 5), (_) {
-      _savePosition();
-    });
   }
 
   Future _savePosition() async {
@@ -503,14 +761,26 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
           ? VideoPlayerController.file(File(widget.filePath!))
           : VideoPlayerController.networkUrl(Uri.parse(widget.url!));
       c.addListener(() {
-        if (mounted) setState(() {});
+        if (!mounted) return;
+        setState(() {});
+        final p = c.value.position.inSeconds;
+        if (p != _lastPos) {
+          _lastPos = p;
+          Store.addWatchSeconds(1);
+        }
+        if (c.value.isInitialized &&
+            c.value.duration.inSeconds > 0 &&
+            c.value.position.inSeconds >= c.value.duration.inSeconds - 2 &&
+            !_ended) {
+          _ended = true;
+          c.pause();
+          if (widget.next != null) _showNext();
+        }
       });
       await c.initialize();
       if (widget.movie != null) {
         final savedPos = Store.getPosition(widget.movie!.id);
-        if (savedPos > 0) {
-          await c.seekTo(Duration(seconds: savedPos));
-        }
+        if (savedPos > 0) await c.seekTo(Duration(seconds: savedPos));
       }
       if (!mounted) {
         c.dispose();
@@ -529,6 +799,32 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     }
   }
 
+  void _showNext() {
+    showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+            backgroundColor: const Color(0xFF151B23),
+            title: Text(Lang.t('nextMovie')),
+            content: Text(widget.next!.title),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text(Lang.t('close'))),
+              FilledButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    Navigator.pushReplacement(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => PlayerScreen(
+                                title: widget.next!.title,
+                                url: widget.next!.videoUrl,
+                                movie: widget.next)));
+                  },
+                  child: Text(Lang.t('play'))),
+            ]));
+  }
+
   void _poke() {
     _hide?.cancel();
     _hide = Timer(const Duration(seconds: 4), () {
@@ -544,17 +840,54 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     c.seekTo(Duration(seconds: s));
     setState(() {
       _gmode = 1;
-      _glabel = '${sec > 0 ? '+' : ''}$sec ثانية';
+      _glabel = '${sec > 0 ? '+' : ''}$sec';
     });
     Future.delayed(const Duration(milliseconds: 800), () {
       if (mounted) setState(() => _gmode = 0);
     });
   }
 
+  void _speedMenu() {
+    showModalBottomSheet(
+        backgroundColor: const Color(0xFF151B23),
+        context: context,
+        builder: (_) => Wrap(children: [
+              ...[0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map((s) => ListTile(
+                  title: Text('${s}x',
+                      textAlign: TextAlign.center),
+                  onTap: () {
+                    _c?.setPlaybackSpeed(s);
+                    Navigator.pop(context);
+                  })),
+            ]));
+  }
+
+  void _sleepMenu() {
+    showModalBottomSheet(
+        backgroundColor: const Color(0xFF151B23),
+        context: context,
+        builder: (_) => Wrap(children: [
+              ...[0, 15, 30, 60].map((mn) => ListTile(
+                  title: Text(
+                      mn == 0 ? Lang.t('off') : '$mn min',
+                      textAlign: TextAlign.center),
+                  onTap: () {
+                    _sleep?.cancel();
+                    if (mn > 0) {
+                      _sleep = Timer(Duration(minutes: mn), () {
+                        _c?.pause();
+                      });
+                    }
+                    Navigator.pop(context);
+                  })),
+            ]));
+  }
+
   @override
   void dispose() {
     _savePosition();
     _posSaver?.cancel();
+    _sleep?.cancel();
     VolumeController().removeListener();
     WakelockPlus.disable();
     WidgetsBinding.instance.removeObserver(this);
@@ -577,48 +910,62 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(fit: StackFit.expand, children: [
-        if (c != null && _ready)
+        if (c != null && _ready && !_audioOnly)
           Center(
               child: AspectRatio(
                   aspectRatio: c.value.aspectRatio, child: VideoPlayer(c))),
+        if (_audioOnly)
+          const Center(
+              child: Icon(Icons.music_note, size: 80, color: Colors.white24)),
         IgnorePointer(
             child: Container(
                 color: Colors.black.withOpacity((1 - _bright) * 0.85))),
         GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: () {
+            if (_locked) {
+              setState(() => _ui = true);
+              _poke();
+              return;
+            }
             setState(() => _ui = !_ui);
             if (_ui) _poke();
           },
           onDoubleTapDown: (d) {
+            if (_locked) return;
             final w = MediaQuery.of(context).size.width;
             _jump(d.localPosition.dx > w / 2 ? 10 : -10);
           },
           onHorizontalDragStart: (d) {
+            if (_locked) return;
             _start = d.localPosition;
             _seekBase = pos.inSeconds;
             _seekDelta = 0;
           },
           onHorizontalDragUpdate: (d) {
+            if (_locked) return;
             _seekDelta =
                 ((d.localPosition.dx - (_start?.dx ?? 0)) * 0.1).round();
             setState(() {
               _gmode = 1;
               _glabel =
-                  '${_seekDelta >= 0 ? '+' : ''}$_seekDelta ث → ${_fmt(Duration(seconds: (_seekBase + _seekDelta).clamp(0, dur.inSeconds)))}';
+                  '${_seekDelta >= 0 ? '+' : ''}$_seekDelta → ${_fmt(Duration(seconds: (_seekBase + _seekDelta).clamp(0, dur.inSeconds)))}';
             });
           },
           onHorizontalDragEnd: (_) {
+            if (_locked) return;
             final s = (_seekBase + _seekDelta).clamp(0, dur.inSeconds);
             c?.seekTo(Duration(seconds: s));
             setState(() => _gmode = 0);
           },
           onVerticalDragStart: (d) {
+            if (_locked) return;
             final w = MediaQuery.of(context).size.width;
             _start = d.localPosition;
             setState(() => _gmode = d.localPosition.dx > w / 2 ? 2 : 3);
           },
           onVerticalDragUpdate: (d) {
+            if (_locked) return;
             final dy = (_start?.dy ?? 0) - d.localPosition.dy;
             final step = dy / 400;
             if (_gmode == 2) {
@@ -631,7 +978,9 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
             }
             _start = d.localPosition;
           },
-          onVerticalDragEnd: (_) => setState(() => _gmode = 0),
+          onVerticalDragEnd: (_) {
+            if (!_locked) setState(() => _gmode = 0);
+          },
           child: Container(color: Colors.transparent),
         ),
         if (_gmode != 0)
@@ -648,23 +997,32 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                             : _gmode == 3
                                 ? Icons.brightness_6
                                 : Icons.fast_forward,
-                        color: Colors.amber,
+                        color: AppTheme.accent,
                         size: 34),
                     const SizedBox(height: 6),
                     Text(_glabel,
                         style: const TextStyle(
                             color: Colors.white, fontSize: 13)),
                   ]))),
+        if (_locked && _ui)
+          Center(
+              child: IconButton(
+                  icon: const Icon(Icons.lock_open,
+                      size: 40, color: Colors.white70),
+                  onPressed: () => setState(() {
+                        _locked = false;
+                        _ui = false;
+                      }))),
         if (_ready && c != null && c.value.isBuffering)
           const Center(
-              child: CircularProgressIndicator(color: Color(0xFFE5B13D))),
+              child: CircularProgressIndicator(color: Colors.amber)),
         if (_err)
-          const Center(
-              child: Text('تعذر تشغيل الفيديو — تحقق من الاتصال',
-                  style: TextStyle(color: Colors.grey))),
+          Center(
+              child: Text(Lang.t('failedPlay'),
+                  style: const TextStyle(color: Colors.grey))),
         if (!_ready && !_err)
           const Center(
-              child: CircularProgressIndicator(color: Color(0xFFE5B13D))),
+              child: CircularProgressIndicator(color: Colors.amber)),
         if (_ui)
           Positioned(
               top: 0,
@@ -688,6 +1046,34 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                                 fontSize: 15, fontWeight: FontWeight.bold),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis)),
+                    IconButton(
+                        icon: Icon(
+                            _locked ? Icons.lock : Icons.lock_open,
+                            color: Colors.white70),
+                        onPressed: () => setState(() {
+                              _locked = !_locked;
+                              _ui = false;
+                            })),
+                    IconButton(
+                        icon: const Icon(Icons.speed, color: Colors.white70),
+                        onPressed: _speedMenu),
+                    IconButton(
+                        icon: const Icon(Icons.bedtime, color: Colors.white70),
+                        onPressed: _sleepMenu),
+                    IconButton(
+                        icon: Icon(
+                            _audioOnly
+                                ? Icons.videocam
+                                : Icons.music_note,
+                            color: Colors.white70),
+                        onPressed: () {
+                          setState(() => _audioOnly = !_audioOnly);
+                          if (_audioOnly) {
+                            WakelockPlus.disable();
+                          } else {
+                            WakelockPlus.enable();
+                          }
+                        }),
                     IconButton(
                         icon: Icon(
                             _isLandscape
@@ -729,7 +1115,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                                   c.value.isPlaying
                                       ? Icons.pause
                                       : Icons.play_arrow,
-                                  color: Colors.amber,
+                                  color: AppTheme.accent,
                                   size: 44),
                               onPressed: () {
                                 c.value.isPlaying ? c.pause() : c.play();
@@ -739,6 +1125,11 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                               icon: const Icon(Icons.forward_10,
                                   color: Colors.white70),
                               onPressed: () => _jump(10)),
+                          IconButton(
+                              tooltip: Lang.t('skipIntro'),
+                              icon: const Icon(Icons.double_arrow,
+                                  color: Colors.white70),
+                              onPressed: () => _jump(85)),
                         ]),
                         Row(children: [
                           Padding(
@@ -749,10 +1140,9 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                           Expanded(
                               child: SliderTheme(
                                   data: SliderThemeData(
-                                      activeTrackColor:
-                                          const Color(0xFFE5B13D),
+                                      activeTrackColor: AppTheme.accent,
                                       inactiveTrackColor: Colors.white24,
-                                      thumbColor: const Color(0xFFE5B13D),
+                                      thumbColor: AppTheme.accent,
                                       trackHeight: 3,
                                       thumbShape:
                                           const RoundSliderThumbShape(
@@ -764,8 +1154,8 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                                       max: dur.inSeconds
                                           .toDouble()
                                           .clamp(1, 100000000),
-                                      onChanged: (v) =>
-                                          c.seekTo(Duration(seconds: v.toInt()))))),
+                                      onChanged: (v) => c.seekTo(
+                                          Duration(seconds: v.toInt()))))),
                           Padding(
                               padding: const EdgeInsets.symmetric(horizontal: 8),
                               child: Text(_fmt(dur),
@@ -778,7 +1168,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   }
 }
 
-/* ======== المفضلة ======== */
+/* ======== المفضلة + لاحقاً + القوائم ======== */
 class FavoritesPage extends StatelessWidget {
   const FavoritesPage({super.key});
   @override
@@ -786,28 +1176,110 @@ class FavoritesPage extends StatelessWidget {
       valueListenable: Store.tick,
       builder: (_, __, ___) {
         final favs = Store.favorites();
+        final later = Store.watchLater();
+        final pls = Store.playlists().keys.toList();
         return Scaffold(
-            appBar: AppBar(title: const Text('المفضلة')),
-            body: favs.isEmpty
-                ? const Center(
-                    child: Column(mainAxisSize: MainAxisSize.min, children: [
-                      Icon(Icons.favorite_outline,
+            appBar: AppBar(title: Text(Lang.t('favorites'))),
+            body: ListView(children: [
+              if (later.isNotEmpty) _sec(Lang.t('watchLater'), later),
+              if (pls.isNotEmpty)
+                Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                    child: Wrap(
+                        spacing: 8,
+                        children: pls
+                            .map((n) => ActionChip(
+                                label: Text(n,
+                                    style: const TextStyle(fontSize: 11)),
+                                onPressed: () => Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                        builder: (_) => PlaylistPage(
+                                            name: n)))))
+                            .toList())),
+              Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: OutlinedButton.icon(
+                      onPressed: () => newPlaylistDialog(context),
+                      icon: const Icon(Icons.add),
+                      label: Text(Lang.t('newPlaylist')))),
+              if (favs.isEmpty)
+                Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 60),
+                    child: Column(children: [
+                      const Icon(Icons.favorite_outline,
                           size: 80, color: Colors.red),
-                      SizedBox(height: 16),
-                      Text('لا توجد أفلام مفضلة بعد',
-                          style: TextStyle(
+                      const SizedBox(height: 16),
+                      Text(Lang.t('noFav'),
+                          style: const TextStyle(
                               fontSize: 20, fontWeight: FontWeight.bold)),
-                      SizedBox(height: 8),
-                      Text('اضغط على القلب ❤️ في أي فيلم لإضافته هنا',
-                          style: TextStyle(color: Colors.grey)),
+                      const SizedBox(height: 8),
+                      Text(Lang.t('noFavHint'),
+                          style: const TextStyle(color: Colors.grey)),
                     ]))
-                : GridView.builder(
+              else
+                GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
                     padding: const EdgeInsets.all(8),
                     gridDelegate:
                         const SliverGridDelegateWithFixedCrossAxisCount(
                             crossAxisCount: 3, childAspectRatio: 0.55),
                     itemCount: favs.length,
-                    itemBuilder: (_, i) => MovieCard(m: favs[i])));
+                    itemBuilder: (_, i) => MovieCard(m: favs[i])),
+            ]));
+      });
+
+  Widget _sec(String t, List<Movie> l) => Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                child: Text(t,
+                    style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.accent))),
+            SizedBox(
+                height: 210,
+                child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: l.length,
+                    itemBuilder: (_, i) => SizedBox(
+                        width: 130, child: MovieCard(m: l[i])))),
+          ]);
+}
+
+/* ======== صفحة قائمة مخصصة ======== */
+class PlaylistPage extends StatelessWidget {
+  final String name;
+  const PlaylistPage({super.key, required this.name});
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<int>(
+      valueListenable: Store.tick,
+      builder: (_, __, ___) {
+        final l = Store.playlistMovies(name);
+        return Scaffold(
+            appBar: AppBar(
+                title: Text(name),
+                actions: [
+                  IconButton(
+                      icon: const Icon(Icons.delete_outline,
+                          color: Colors.red),
+                      onPressed: () async {
+                        await Store.delPlaylist(name);
+                        if (context.mounted) Navigator.pop(context);
+                      }),
+                ]),
+            body: l.isEmpty
+                ? const Center(child: Icon(Icons.playlist_play, size: 80))
+                : GridView.builder(
+                    padding: const EdgeInsets.all(8),
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 3, childAspectRatio: 0.55),
+                    itemCount: l.length,
+                    itemBuilder: (_, i) => MovieCard(m: l[i])));
       });
 }
 
@@ -820,11 +1292,11 @@ class HistoryPage extends StatelessWidget {
       builder: (_, __, ___) {
         final h = Store.history();
         return Scaffold(
-            appBar: AppBar(title: const Text('شاهدتها')),
+            appBar: AppBar(title: Text(Lang.t('watched'))),
             body: h.isEmpty
-                ? const Center(
-                    child: Text('لا يوجد سجل مشاهدة بعد',
-                        style: TextStyle(color: Colors.grey)))
+                ? Center(
+                    child: Text(Lang.t('noHistory'),
+                        style: const TextStyle(color: Colors.grey)))
                 : ListView.separated(
                     itemCount: h.length,
                     separatorBuilder: (_, __) => const Divider(height: 1),
@@ -850,7 +1322,7 @@ class HistoryPage extends StatelessWidget {
       });
 }
 
-/* ======== تحميلاتي (نشطة + مكتملة) ======== */
+/* ======== تحميلاتي ======== */
 class DownloadsPage extends StatelessWidget {
   const DownloadsPage({super.key});
 
@@ -866,8 +1338,7 @@ class DownloadsPage extends StatelessWidget {
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             Icon(paused ? Icons.pause_circle_outline : Icons.downloading,
-                color: paused ? Colors.grey : const Color(0xFFE5B13D),
-                size: 22),
+                color: paused ? Colors.grey : AppTheme.accent, size: 22),
             const SizedBox(width: 8),
             Expanded(
                 child: Text(m.title,
@@ -876,9 +1347,9 @@ class DownloadsPage extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis)),
             Text('${(p * 100).round()}%',
-                style: const TextStyle(
+                style: TextStyle(
                     fontSize: 12,
-                    color: Color(0xFFE5B13D),
+                    color: AppTheme.accent,
                     fontWeight: FontWeight.bold)),
           ]),
           const SizedBox(height: 8),
@@ -886,20 +1357,19 @@ class DownloadsPage extends StatelessWidget {
               value: p,
               minHeight: 5,
               backgroundColor: Colors.white12,
-              valueColor: const AlwaysStoppedAnimation(Color(0xFFE5B13D))),
+              valueColor: AlwaysStoppedAnimation(AppTheme.accent)),
           const SizedBox(height: 6),
           Row(children: [
-            Text(paused ? 'متوقف مؤقتاً' : 'جاري التحميل…',
+            Text(paused ? Lang.t('pausedDl') : Lang.t('downloading'),
                 style: const TextStyle(fontSize: 10, color: Colors.grey)),
             const Spacer(),
             IconButton(
-                tooltip: paused ? 'استئناف' : 'إيقاف مؤقت',
                 icon: Icon(paused ? Icons.play_arrow : Icons.pause,
-                    size: 22, color: paused ? Colors.green : Colors.amber),
+                    size: 22,
+                    color: paused ? Colors.green : Colors.amber),
                 onPressed: () =>
                     paused ? Downloader.resume(id) : Downloader.pause(id)),
             IconButton(
-                tooltip: 'إلغاء',
                 icon: const Icon(Icons.close, size: 22, color: Colors.red),
                 onPressed: () => Downloader.cancel(id)),
           ]),
@@ -919,18 +1389,18 @@ class DownloadsPage extends StatelessWidget {
                 final active = Downloader.activeIds();
                 final items = Store.downloads().entries.toList();
                 return Scaffold(
-                    appBar: AppBar(title: const Text('تحميلاتي')),
+                    appBar: AppBar(title: Text(Lang.t('downloads'))),
                     body: (active.isEmpty && items.isEmpty)
-                        ? const Center(
-                            child: Text('لا توجد تحميلات',
-                                style: TextStyle(color: Colors.grey)))
+                        ? Center(
+                            child: Text(Lang.t('noDownloads'),
+                                style: const TextStyle(color: Colors.grey)))
                         : ListView(children: [
                             ...active.map(_activeTile),
                             if (active.isNotEmpty && items.isNotEmpty)
-                              const Padding(
-                                  padding: EdgeInsets.all(10),
-                                  child: Text('المكتملة',
-                                      style: TextStyle(
+                              Padding(
+                                  padding: const EdgeInsets.all(10),
+                                  child: Text(Lang.t('completed'),
+                                      style: const TextStyle(
                                           fontSize: 12, color: Colors.grey))),
                             ...items.map((e) {
                               final m = Movie.fromJson(
@@ -938,11 +1408,12 @@ class DownloadsPage extends StatelessWidget {
                               final path = e.value['path']?.toString() ?? '';
                               return ListTile(
                                   leading: const CircleAvatar(
-                                      child:
-                                          Icon(Icons.download_done, size: 20)),
+                                      child: Icon(Icons.download_done,
+                                          size: 20)),
                                   title: Text(m.title,
                                       style: const TextStyle(fontSize: 13)),
-                                  subtitle: Text(m.size.isEmpty ? path : m.size,
+                                  subtitle: Text(
+                                      m.size.isEmpty ? path : m.size,
                                       style: const TextStyle(fontSize: 10)),
                                   onTap: () => Navigator.push(
                                       context,
@@ -982,8 +1453,8 @@ class _ChannelsPageState extends State<ChannelsPage> {
       final p = await Tg.fetchPage(u);
       if (p.movies.isEmpty) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text('لم يتم العثور على أفلام في هذه القناة')));
+          ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(Lang.t('channelNoMovies'))));
         }
       } else {
         await Store.addChannel(Channel(u, title: p.title, avatar: p.avatar));
@@ -994,8 +1465,8 @@ class _ChannelsPageState extends State<ChannelsPage> {
       }
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('تعذر الاتصال بالخادم — تأكد أن البوت يعمل')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(Lang.t('serverFail'))));
       }
     }
     if (mounted) setState(() => _busy = false);
@@ -1005,21 +1476,21 @@ class _ChannelsPageState extends State<ChannelsPage> {
   Widget build(BuildContext context) => ValueListenableBuilder<int>(
       valueListenable: Store.tick,
       builder: (_, __, ___) => Scaffold(
-            appBar: AppBar(title: const Text('القنوات')),
+            appBar: AppBar(title: Text(Lang.t('channels'))),
             body: ListView(padding: const EdgeInsets.all(12), children: [
               TextField(
                   controller: _ctrl,
                   focusNode: _focus,
                   decoration: InputDecoration(
-                      hintText: 'الصق رابط القناة أو @اليوزر…',
+                      hintText: Lang.t('addChannelHint'),
                       prefixIcon: const Icon(Icons.add_link),
                       suffixIcon: _busy
                           ? const Padding(
                               padding: EdgeInsets.all(12),
                               child: CircularProgressIndicator(strokeWidth: 2))
                           : IconButton(
-                              icon: const Icon(Icons.add_circle,
-                                  color: Colors.amber),
+                              icon: Icon(Icons.add_circle,
+                                  color: AppTheme.accent),
                               onPressed: _add),
                       filled: true,
                       fillColor: const Color(0xFF151B23),
@@ -1031,24 +1502,22 @@ class _ChannelsPageState extends State<ChannelsPage> {
                 Padding(
                     padding: const EdgeInsets.symmetric(vertical: 50),
                     child: Column(children: [
-                      const Icon(Icons.rss_feed,
-                          size: 90, color: Color(0xFFE5A83B)),
+                      Icon(Icons.rss_feed, size: 90, color: AppTheme.accent),
                       const SizedBox(height: 24),
-                      const Text('لا توجد قنوات بعد',
-                          style: TextStyle(
+                      Text(Lang.t('noChannels'),
+                          style: const TextStyle(
                               fontSize: 24, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 10),
-                      const Text(
-                          'أضف قناة أفلام من تيليجرام وستظهر جميع فيديوهاتها هنا',
+                      Text(Lang.t('noChannelsHint'),
                           textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.grey)),
+                          style: const TextStyle(color: Colors.grey)),
                       const SizedBox(height: 30),
                       FilledButton.icon(
                           onPressed: () => _focus.requestFocus(),
                           icon: const Icon(Icons.add),
-                          label: const Text('إضافة قناة'),
+                          label: Text(Lang.t('addChannel')),
                           style: FilledButton.styleFrom(
-                              backgroundColor: const Color(0xFFE5B13D),
+                              backgroundColor: AppTheme.accent,
                               foregroundColor: Colors.black,
                               minimumSize: const Size(260, 58),
                               shape: RoundedRectangleBorder(
@@ -1058,11 +1527,11 @@ class _ChannelsPageState extends State<ChannelsPage> {
                   dense: true,
                   leading: const CircleAvatar(
                       child: Icon(Icons.video_library, size: 20)),
-                  title: const Text('الكل — جميع القنوات',
-                      style: TextStyle(fontSize: 14)),
+                  title: Text(Lang.t('allChannels'),
+                      style: const TextStyle(fontSize: 14)),
                   trailing: App.scope.value == 'all'
-                      ? const Icon(Icons.check_circle,
-                          color: Colors.amber, size: 18)
+                      ? Icon(Icons.check_circle,
+                          color: AppTheme.accent, size: 18)
                       : null,
                   onTap: () {
                     App.scope.value = 'all';
@@ -1080,12 +1549,12 @@ class _ChannelsPageState extends State<ChannelsPage> {
                     title: Text(c.title.isEmpty ? c.username : c.title,
                         style: const TextStyle(fontSize: 14)),
                     subtitle: Text(
-                        '@${c.username} • ${Store.moviesOf(c.username).length} فيلم',
+                        '@${c.username} • ${Store.moviesOf(c.username).length}',
                         style: const TextStyle(fontSize: 11)),
                     trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                       if (App.scope.value == c.username)
-                        const Icon(Icons.check_circle,
-                            color: Colors.amber, size: 18),
+                          Icon(Icons.check_circle,
+                              color: AppTheme.accent, size: 18),
                       IconButton(
                           icon: const Icon(Icons.delete_outline,
                               color: Colors.red, size: 20),
