@@ -1,4 +1,4 @@
-name: Build Phone + TV + iOS
+name: Build iOS for Scarlet
 
 on:
   push:
@@ -6,61 +6,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-android:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '17'
-
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.24.3'
-          channel: 'stable'
-
-      - name: Generate android folder
-        run: flutter create . --platforms android --no-overwrite
-
-      - name: Patch AndroidManifest (HTTP + app name)
-        run: |
-          sed -i 's/<application/<application android:usesCleartextTraffic="true"/' android/app/src/main/AndroidManifest.xml
-          sed -i 's/android:label="[^"]*"/android:label="تلي سينما"/' android/app/src/main/AndroidManifest.xml
-
-      - name: Build Phone APK
-        run: |
-          flutter pub get
-          flutter pub run flutter_launcher_icons:main
-          flutter build apk --release
-
-      - name: Upload Phone APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: tele-cinema-phone
-          path: build/app/outputs/flutter-apk/app-release.apk
-
-      - name: Patch manifest for Android TV
-        run: |
-          sed -i 's|<application|<uses-feature android:name="android.software.leanback" android:required="false" />\n    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />\n    <application|' android/app/src/main/AndroidManifest.xml
-          sed -i 's|<category android:name="android.intent.category.LAUNCHER"/>|<category android:name="android.intent.category.LAUNCHER" />\n                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />|' android/app/src/main/AndroidManifest.xml
-          sed -i 's/android:label="تلي سينما"/android:label="تلي سينما TV"/' android/app/src/main/AndroidManifest.xml
-
-      - name: Build TV APK
-        run: flutter build apk --release
-
-      - name: Upload TV APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: tele-cinema-tv
-          path: build/app/outputs/flutter-apk/app-release.apk
-
   build-ios:
     runs-on: macos-latest
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -74,23 +22,49 @@ jobs:
       - name: Generate iOS folder
         run: flutter create . --platforms ios --no-overwrite
 
-      - name: Allow HTTP in Info.plist (ATS)
+      - name: Configure iOS settings
         run: |
+          # السماح بـ HTTP (السيرفر غير HTTPS)
           /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" ios/Runner/Info.plist 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoads bool true" ios/Runner/Info.plist 2>/dev/null || true
 
-      - name: Build iOS (without signing)
+          # اسم التطبيق بالعربي
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName تلي سينما" ios/Runner/Info.plist 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string تلي سينما" ios/Runner/Info.plist 2>/dev/null || true
+
+          # دعم الاتجاهات الأفقية والعمودية
+          /usr/libexec/PlistBuddy -c "Delete :UISupportedInterfaceOrientations" ios/Runner/Info.plist 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations array" ios/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations: string UIInterfaceOrientationPortrait" ios/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations: string UIInterfaceOrientationLandscapeLeft" ios/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations: string UIInterfaceOrientationLandscapeRight" ios/Runner/Info.plist
+
+          # تحديد أقل إصدار iOS
+          /usr/libexec/PlistBuddy -c "Set :MinimumOSVersion 13.0" ios/Runner/Info.plist 2>/dev/null || true
+
+      - name: Set deployment target in Podfile
+        run: |
+          cd ios
+          if [ -f Podfile ]; then
+            sed -i '' 's/platform :ios, .*/platform :ios, '\''13.0'\''/' Podfile
+          fi
+
+      - name: Build iOS (unsigned)
         run: |
           flutter pub get
           flutter build ios --release --no-codesign
 
-      - name: Package Runner.app
+      - name: Package as IPA for Scarlet
         run: |
           cd build/ios/iphoneos
-          zip -r tele-cinema-ios-unsigned.zip Runner.app
+          mkdir -p Payload
+          cp -r Runner.app Payload/
+          zip -r tele-cinema-ios.ipa Payload/
+          rm -rf Payload
 
-      - name: Upload iOS artifact
+      - name: Upload IPA for Scarlet
         uses: actions/upload-artifact@v4
         with:
-          name: tele-cinema-ios-unsigned
-          path: build/ios/iphoneos/tele-cinema-ios-unsigned.zip
+          name: tele-cinema-ios-scarlet
+          path: build/ios/iphoneos/tele-cinema-ios.ipa
+          retention-days: 14
