@@ -385,7 +385,7 @@ class MovieDetailsScreen extends StatelessWidget {
       );
 }
 
-/* ======== المشغل الاحترافي بالإيماءات ======== */
+/* ======== المشغل الاحترافي بالإيماءات + حفظ الموضع + التدوير ======== */
 class PlayerScreen extends StatefulWidget {
   final String title;
   final String? url;
@@ -401,13 +401,15 @@ class PlayerScreen extends StatefulWidget {
   State<PlayerScreen> createState() => _PlayerScreenState();
 }
 
-class _PlayerScreenState extends State<PlayerScreen> {
+class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver {
   VideoPlayerController? _c;
   bool _ready = false, _err = false, _ui = true;
   Timer? _hide;
+  Timer? _posSaver;
+  bool _isLandscape = true;
   // الإيماءات
   Offset? _start;
-  int _gmode = 0; // 1 تقديم/ترجيع, 2 صوت, 3 إضاءة
+  int _gmode = 0;
   String _glabel = '';
   double _vol = 1.0, _bright = 1.0;
   int _seekBase = 0, _seekDelta = 0;
@@ -415,10 +417,41 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     if (widget.movie != null) Store.markWatched(widget.movie!);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
     _init();
     _poke();
+    _startPositionSaver();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      _savePosition();
+    }
+  }
+
+  void _startPositionSaver() {
+    _posSaver = Timer.periodic(const Duration(seconds: 5), (_) {
+      _savePosition();
+    });
+  }
+
+  Future _savePosition() async {
+    final c = _c;
+    if (c != null && c.value.isInitialized && widget.movie != null) {
+      final pos = c.value.position.inSeconds;
+      final dur = c.value.duration.inSeconds;
+      if (pos > 10 && pos < dur - 10) {
+        await Store.savePosition(widget.movie!.id, pos);
+      }
+    }
   }
 
   Future _init() async {
@@ -430,6 +463,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
         if (mounted) setState(() {});
       });
       await c.initialize();
+
+      // استئناف من الموضع المحفوظ
+      if (widget.movie != null) {
+        final savedPos = Store.getPosition(widget.movie!.id);
+        if (savedPos > 0) {
+          await c.seekTo(Duration(seconds: savedPos));
+        }
+      }
+
       if (!mounted) {
         c.dispose();
         return;
@@ -469,8 +511,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   void dispose() {
+    _savePosition();
+    _posSaver?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     _hide?.cancel();
     _c?.dispose();
+    SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
   }
@@ -602,6 +648,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                 fontSize: 15, fontWeight: FontWeight.bold),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis)),
+                    IconButton(
+                        icon: Icon(
+                            _isLandscape
+                                ? Icons.stay_current_portrait
+                                : Icons.stay_current_landscape,
+                            color: Colors.white70),
+                        onPressed: () {
+                          setState(() => _isLandscape = !_isLandscape);
+                          SystemChrome.setPreferredOrientations(_isLandscape
+                              ? [
+                                  DeviceOrientation.landscapeLeft,
+                                  DeviceOrientation.landscapeRight,
+                                ]
+                              : [DeviceOrientation.portraitUp]);
+                        }),
                   ])))),
         // شريط التحكم السفلي
         if (_ui && _ready && c != null)
