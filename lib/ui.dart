@@ -186,7 +186,6 @@ class _HomePageState extends State<HomePage> {
             _sortItem('smart', '✨ ذكي (حسب ذوقك)'),
           ],
         ),
-        IconButton(icon: const Icon(Icons.notifications_outlined), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AnnouncementsScreen()))),
         IconButton(icon: const Icon(Icons.explore_outlined), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DiscoverScreen()))),
         IconButton(icon: const Icon(Icons.emoji_events_outlined), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AchievementsScreen()))),
         IconButton(icon: const Icon(Icons.settings), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsPage()))),
@@ -359,9 +358,15 @@ class _MovieDetailsScreenState extends State<MovieDetailsScreen> {
     return Scaffold(backgroundColor: const Color(0xFF0B0F14),
         body: Stack(fit: StackFit.expand, children: [
           if (bg.isNotEmpty)
-            GestureDetector(onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PosterScreen(m: m))),
-                child: ImageFiltered(imageFilter: ui.ImageFilter.blur(sigmaX: Store.getBool('battery') ? 8 : 22, sigmaY: Store.getBool('battery') ? 8 : 22),
-                    child: Hero(tag: 'poster_${m.id}', child: CachedNetworkImage(imageUrl: bg, fit: BoxFit.cover, errorWidget: (_, __, ___) => const SizedBox())))),
+            GestureDetector(
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PosterScreen(m: m))),
+                child: Stack(fit: StackFit.expand, children: [
+                  Hero(tag: 'poster_${m.id}',
+                      child: CachedNetworkImage(imageUrl: bg, fit: BoxFit.cover, errorWidget: (_, __, ___) => const SizedBox())),
+                  Container(decoration: BoxDecoration(gradient: LinearGradient(
+                      begin: Alignment.topCenter, end: Alignment.bottomCenter,
+                      colors: [Colors.black.withOpacity(0.3), Colors.black.withOpacity(0.5), const Color(0xFF0B0F14)]))),
+                ])),
           Container(decoration: const BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Colors.black87, Colors.transparent, Color(0xFF0B0F14)]))),
           SafeArea(child: Column(children: [
             Row(children: [
