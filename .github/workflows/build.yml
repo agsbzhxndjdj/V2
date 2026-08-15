@@ -28,13 +28,14 @@ jobs:
       - name: Generate android folder
         run: flutter create . --platforms android --no-overwrite
 
-      - name: Inject keystore
+      - name: Inject keystore + google-services
         run: |
           if [ -f KEYSTORE_B64 ]; then base64 -d -i KEYSTORE_B64 > android/app/telecinema.keystore; echo "keystore decoded OK"; fi
           if [ -f telecinema.keystore ]; then cp telecinema.keystore android/app/telecinema.keystore; echo "keystore copied OK"; fi
-          ls -la android/app/google-services.json android/app/telecinema.keystore || true
+          if [ -f google-services.json ]; then cp google-services.json android/app/google-services.json; echo "google-services copied OK"; fi
+          ls -la android/app/ | head -20
 
-      - name: Patch gradle (smart patch for Flutter 3.24)
+      - name: Patch gradle (google-services + signing)
         run: |
           python3 - << 'PYEOF'
           import re
@@ -43,35 +44,23 @@ jobs:
           p = 'android/settings.gradle'
           s = open(p).read()
           if 'google-services' not in s:
-              # ابحث عن plugins { ... } block وأضف قبل } الأخير
-              m = re.search(r'plugins\s*\{([^}]*)\}', s)
+              m = re.search(r'plugins\s*\{[^}]*\}', s)
               if m:
                   old = m.group(0)
-                  # أضف قبل } الإغلاق
                   new = old[:-1] + '\n    id "com.google.gms.google-services" version "4.4.0" apply false\n}'
                   s = s.replace(old, new)
                   open(p, 'w').write(s)
                   print('settings.gradle patched')
-              else:
-                  # fallback: append block كامل
-                  s += '\npluginManagement {\n    plugins {\n        id "com.google.gms.google-services" version "4.4.0" apply false\n    }\n}\n'
-                  open(p, 'w').write(s)
-                  print('settings.gradle fallback patched')
 
-          # 2) app/build.gradle: إضافة google-services plugin بدون version + signing
+          # 2) app/build.gradle: تفعيل google-services + توقيع release
           p = 'android/app/build.gradle'
           s = open(p).read()
-
-          # إضافة plugin (id فقط، بدون version — لأنه معرّف في settings)
           if 'com.google.gms.google-services' not in s:
-              # ابحث عن plugins { } block
-              m = re.search(r'plugins\s*\{([^}]*)\}', s)
+              m = re.search(r'plugins\s*\{[^}]*\}', s)
               if m:
                   old = m.group(0)
                   new = old[:-1] + '\n    id "com.google.gms.google-services"\n}'
                   s = s.replace(old, new)
-
-          # توقيع release
           sig = """    signingConfigs {
               release {
                   storeFile file('telecinema.keystore')
@@ -85,13 +74,7 @@ jobs:
               s = s.replace('    buildTypes {', sig + '\n    buildTypes {', 1)
           s = s.replace('signingConfig signingConfigs.debug', 'signingConfig signingConfigs.release')
           open(p, 'w').write(s)
-          print('app/build.gradle patched')
-
-          # عرض النتيجة للتحقق
-          print('=== settings.gradle plugins block ===')
-          print(open('android/settings.gradle').read()[:1500])
-          print('=== app/build.gradle plugins block ===')
-          print(open('android/app/build.gradle').read()[:1500])
+          print('GRADLE PATCHED')
           PYEOF
 
       - name: Patch AndroidManifest (HTTP + الاسم + Android TV + الإشعارات)
@@ -103,7 +86,7 @@ jobs:
           sed -i 's|<uses-permission android:name="android.permission.INTERNET"/>|<uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>|' android/app/src/main/AndroidManifest.xml
           grep -n "usesCleartextTraffic\|LEANBACK\|POST_NOTIFICATIONS" android/app/src/main/AndroidManifest.xml
 
-      - name: Patch MainActivity (كشف Android TV)
+      - name: Patch MainActivity (كشف TV + تشغيل خارجي Cast)
         run: |
           MAIN_ACT=$(find android/app/src/main -name "MainActivity.kt" | head -n 1)
           PKG=$(head -n 1 "$MAIN_ACT")
@@ -126,6 +109,18 @@ jobs:
             echo '                        pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||'
             echo '                            pm.hasSystemFeature(PackageManager.FEATURE_TELEVISION)'
             echo '                    )'
+            echo '                } else if (call.method == "openExternal") {'
+            echo '                    val url = call.argument<String>("url")'
+            echo '                    if (url == null) { result.success(false); return@setMethodCallHandler }'
+            echo '                    val uri = android.net.Uri.parse(url)'
+            echo '                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, uri)'
+            echo '                    intent.setDataAndType(uri, "video/*")'
+            echo '                    try {'
+            echo '                        startActivity(android.content.Intent.createChooser(intent, "تشغيل بواسطة"))'
+            echo '                        result.success(true)'
+            echo '                    } catch (e: Exception) {'
+            echo '                        result.success(false)'
+            echo '                    }'
             echo '                } else {'
             echo '                    result.notImplemented()'
             echo '                }'
