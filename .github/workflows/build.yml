@@ -32,34 +32,36 @@ jobs:
         run: |
           if [ -f KEYSTORE_B64 ]; then base64 -d -i KEYSTORE_B64 > android/app/telecinema.keystore; echo "keystore decoded OK"; fi
           if [ -f telecinema.keystore ]; then cp telecinema.keystore android/app/telecinema.keystore; echo "keystore copied OK"; fi
-          ls -la android/app/google-services.json android/app/telecinema.keystore
+          ls -la android/app/google-services.json android/app/telecinema.keystore || true
 
-      - name: Patch gradle (google-services + signing)
+      - name: Patch gradle (google-services via classpath + signing)
         run: |
           python3 - << 'PYEOF'
-          # إضافة google-services في settings.gradle (فلاتر 3.24)
-          p = 'android/settings.gradle'
-          s = open(p).read()
-          if 'google-services' not in s:
-              s = s.replace('id "org.jetbrains.kotlin.android"', 'id "org.jetbrains.kotlin.android"\n    id "com.google.gms.google-services" version "4.4.0" apply false', 1)
-              open(p, 'w').write(s)
-              print('settings.gradle patched')
-
-          # احتياط: إذا كان المشروع يستخدم build.gradle القديم
+          # 1) إضافة classpath في android/build.gradle
           p = 'android/build.gradle'
           s = open(p).read()
           if 'google-services' not in s:
-              if 'plugins {' in s:
-                  s = s.replace('id "org.jetbrains.kotlin.android"', 'id "org.jetbrains.kotlin.android"\n    id "com.google.gms.google-services" version "4.4.0" apply false', 1)
-              elif 'dependencies {' in s:
-                  s = s.replace('dependencies {', 'dependencies {\n        classpath "com.google.gms:google-services:4.4.0"', 1)
-              open(p, 'w').write(s)
+              if 'buildscript {' in s:
+                  # الطريقة الكلاسيكية
+                  s = s.replace('ext.kotlin_version', 'ext.kotlin_version', 1)  # لا تغيير
+                  if 'dependencies {' in s:
+                      s = s.replace('dependencies {', 'dependencies {\n        classpath "com.google.gms:google-services:4.4.0"', 1)
+                  elif 'subprojects {' in s:
+                      s = s.replace('buildscript {', 'buildscript {\n    dependencies {\n        classpath "com.google.gms:google-services:4.4.0"\n    }', 1)
+              else:
+                  # إذا كان build.gradle جديد (plugins block) — نضيف classpath block
+                  s = 'buildscript {\n    dependencies {\n        classpath "com.google.gms:google-services:4.4.0"\n    }\n}\n\n' + s
+          open(p, 'w').write(s)
+          print('build.gradle patched')
 
-          # توقيع النسخة + تفعيل google-services في التطبيق
+          # 2) تعديل android/app/build.gradle
           p = 'android/app/build.gradle'
           s = open(p).read()
-          if 'com.google.gms.google-services' not in s:
-              s = s.replace('id "dev.flutter.flutter-gradle-plugin"', 'id "dev.flutter.flutter-gradle-plugin"\n    id "com.google.gms.google-services"', 1)
+          # إضافة apply plugin
+          if 'google-services' not in s:
+              s = s.rstrip() + '\napply plugin: "com.google.gms.google-services"\n'
+
+          # توقيع release
           sig = """    signingConfigs {
               release {
                   storeFile file('telecinema.keystore')
@@ -73,7 +75,7 @@ jobs:
               s = s.replace('    buildTypes {', sig + '\n    buildTypes {', 1)
           s = s.replace('signingConfig signingConfigs.debug', 'signingConfig signingConfigs.release')
           open(p, 'w').write(s)
-          print('GRADLE PATCHED')
+          print('app/build.gradle patched')
           PYEOF
 
       - name: Patch AndroidManifest (HTTP + الاسم + Android TV + الإشعارات)
