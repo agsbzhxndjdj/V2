@@ -1,11 +1,15 @@
+import 'dart:io';
 import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:path_provider/path_provider.dart';
 import 'core.dart';
 import 'auth.dart';
+import 'lang.dart';
 import 'ui.dart';
 
 /* ======== فلاتر البحث المتقدم (13) ======== */
@@ -48,9 +52,9 @@ class AdvancedFilterDialog extends StatelessWidget {
       content: SizedBox(width: double.maxFinite, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
         const Text('سنة الإصدار', style: TextStyle(fontSize: 12, color: Colors.grey)),
         Row(children: [
-          Expanded(child: _yearBtn('من', Filters.yearFrom, (v) => Filters.yearFrom = v)),
+          Expanded(child: _yearBtn(context, 'من', Filters.yearFrom, (v) => Filters.yearFrom = v)),
           const SizedBox(width: 8),
-          Expanded(child: _yearBtn('إلى', Filters.yearTo, (v) => Filters.yearTo = v)),
+          Expanded(child: _yearBtn(context, 'إلى', Filters.yearTo, (v) => Filters.yearTo = v)),
         ]),
         const SizedBox(height: 12),
         const Text('الجودة', style: TextStyle(fontSize: 12, color: Colors.grey)),
@@ -76,12 +80,12 @@ class AdvancedFilterDialog extends StatelessWidget {
         FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('تطبيق')),
       ]);
 
-  Widget _yearBtn(String l, int cur, Function(int) set) => OutlinedButton(
+  Widget _yearBtn(BuildContext context, String l, int cur, Function(int) set) => OutlinedButton(
       onPressed: () async {
-        final y = await showDialog<int>(context: context, builder: (_) => AlertDialog(
+        final y = await showDialog<int>(context: context, builder: (ctx) => AlertDialog(
             backgroundColor: const Color(0xFF151B23),
             title: Text('اختر السنة ($l)'),
-            content: Wrap(spacing: 6, children: [0, 1970, 1980, 1990, 2000, 2010, 2015, 2020, 2023, 2024, 2025, 2026].map((y) => ActionChip(label: Text(y == 0 ? 'الكل' : '$y', style: const TextStyle(fontSize: 11)), onPressed: () => Navigator.pop(context, y))).toList())));
+            content: Wrap(spacing: 6, children: [0, 1970, 1980, 1990, 2000, 2010, 2015, 2020, 2023, 2024, 2025, 2026].map((y) => ActionChip(label: Text(y == 0 ? 'الكل' : '$y', style: const TextStyle(fontSize: 11)), onPressed: () => Navigator.pop(ctx, y))).toList())));
         if (y != null) set(y);
       },
       child: Text(cur == 0 ? '$l: الكل' : '$l: $cur', style: const TextStyle(fontSize: 12)));
@@ -160,7 +164,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
               Padding(padding: const EdgeInsets.symmetric(horizontal: 3), child: FilterChip(
                   label: Text('الـ${y}s', style: const TextStyle(fontSize: 11)),
                   selected: _decade == y,
-                  onSelected: (_) => setState(() => _decade = _decade == y ? 0 : y)))),
+                  onSelected: (_) => setState(() => _decade = _decade == y ? 0 : y))),
           ])),
           const SizedBox(height: 14),
           if (list.isEmpty)
@@ -183,7 +187,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
           ])));
 }
 
-/* ======== عجلة الحظ  ======== */
+/* ======== عجلة الحظ ======== */
 class WheelDialog extends StatefulWidget {
   final List<Movie> pool;
   const WheelDialog({super.key, required this.pool});
@@ -260,7 +264,7 @@ class _WheelPainter extends CustomPainter {
   bool shouldRepaint(covariant _WheelPainter o) => o.rot != rot;
 }
 
-/* ======== الإنجازات + التحديات + الشارات + الستريك (18,21,22) ======== */
+/* ======== الإنجازات + التحديات + الشارات + الستريك ======== */
 class AchievementsScreen extends StatelessWidget {
   const AchievementsScreen({super.key});
   @override
@@ -375,7 +379,7 @@ class PosterScreen extends StatelessWidget {
           child: Center(child: Hero(tag: 'poster_${m.id}', child: CachedNetworkImage(imageUrl: m.poster, fit: BoxFit.contain)))));
 }
 
-/* ======== التعليقات 💬 ======== */
+/* ======== التعليقات ======== */
 class CommentsSheet {
   static void show(BuildContext context, Movie m) {
     final ctrl = TextEditingController();
@@ -393,6 +397,7 @@ class CommentsSheet {
                             leading: CircleAvatar(child: Text((list[i]['user'] ?? '؟').toString().substring(0, 1))),
                             title: Text(list[i]['user'] ?? '', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.accent)),
                             subtitle: Text(list[i]['text'] ?? '', style: const TextStyle(fontSize: 12)))),
+                ),
                 Padding(padding: const EdgeInsets.all(8), child: Row(children: [
                   Expanded(child: TextField(controller: ctrl, decoration: InputDecoration(hintText: 'اكتب تعليقاً…', isDense: true, filled: true, fillColor: const Color(0xFF0B0F14), border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none)))),
                   IconButton(icon: Icon(Icons.send, color: AppTheme.accent), onPressed: () async {
@@ -407,7 +412,7 @@ class CommentsSheet {
   }
 }
 
-/* ======== بطاقة فيلم للمشاركة (45) ======== */
+/* ======== بطاقة فيلم للمشاركة ======== */
 class ShareCard {
   static final GlobalKey _bk = GlobalKey();
 
@@ -446,7 +451,7 @@ class ShareCard {
   }
 }
 
-/* ======== التحميل الذكي على WiFi (39) ======== */
+/* ======== التحميل الذكي على WiFi ======== */
 class SmartDownload {
   static Future check() async {
     if (!Store.getBool('smartDl')) return;
