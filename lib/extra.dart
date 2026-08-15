@@ -6,7 +6,6 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:path_provider/path_provider.dart';
 import 'core.dart';
 import 'lang.dart';
-import 'auth.dart';
 
 /* ======== صفحة الإعدادات ======== */
 class SettingsPage extends StatelessWidget {
@@ -110,25 +109,8 @@ class SettingsPage extends StatelessWidget {
                   (v) => Store.setPref('dataSaver', v)),
               _sw('وضع البطارية 🔋', null, Store.getBool('battery'),
                   (v) => Store.setPref('battery', v)),
-              /* ---- الحساب 👤 ---- */
-              _header('الحساب 👤'),
-              ListTile(
-                  leading: const CircleAvatar(child: Icon(Icons.person)),
-                  title: Text(Auth.isGuest ? 'ضيف' : Auth.displayName,
-                      style: const TextStyle(fontSize: 14)),
-                  subtitle: Text(
-                      Auth.isGuest
-                          ? 'غير مسجل — بياناتك على هذا الجهاز فقط'
-                          : (Auth.user?.email ?? ''),
-                      style: const TextStyle(fontSize: 11)),
-                  trailing: Auth.isGuest
-                      ? null
-                      : TextButton(
-                          onPressed: () async {
-                            await Auth.logout();
-                          },
-                          child: const Text('تسجيل خروج',
-                              style: TextStyle(color: Colors.red)))),
+              //* ---- الحساب (محذوف) ---- */
+          
               /* ---- التحميل ---- */
               _header(Lang.t('downloads')),
               _sw(Lang.t('wifiOnly'), Lang.t('wifiNeeded'),
