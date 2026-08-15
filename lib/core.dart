@@ -374,6 +374,16 @@ class Store {
     tick.value++;
   }
 
+  /* ======== تتبع آخر تحديث ======== */
+  static int get lastSyncTime => (prefs()['lastSync'] as int?) ?? 0;
+  static Future setLastSyncTime(int timestamp) => setPref('lastSync', timestamp);
+  static bool shouldSync() {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final diff = now - lastSyncTime;
+    // تحديث مرة واحدة كل 24 ساعة
+    return diff > (24 * 60 * 60 * 1000);
+  }
+
   /* ---- الحسابات المتعددة 👥 (42) ---- */
   static String _pk(String k) => '${k}_${getString('profile', 'الرئيسي')}';
 
@@ -611,8 +621,26 @@ class Sync {
   static void Function(int count, String channel)? onNewMovies;
 
   static void start() {
-    _timer ??= Timer.periodic(const Duration(hours: 2), (_) => checkAll());
-    Future.delayed(const Duration(seconds: 3), checkAll);
+    // ✅ التحسين: Timer دوري كل 24 ساعة بدل ساعتين
+    _timer ??= Timer.periodic(const Duration(hours: 24), (_) {
+      if (Store.shouldSync()) {
+        checkAll();
+      }
+    });
+    
+    // ✅ التحسين: حذف Future.delayed - لا تحديث تلقائي عند فتح التطبيق
+    // Future.delayed(const Duration(seconds: 3), checkAll);  // ← محذوف
+    
+    // تحديث فقط إذا مر أكثر من 24 ساعة من آخر تحديث
+    if (Store.shouldSync()) {
+      Future.delayed(const Duration(seconds: 3), checkAll);
+    }
+  }
+
+  // ✅ دالة جديدة: تحديث يدوي فوري
+  static Future<void> syncNow() async {
+    await checkAll();
+    await Store.setLastSyncTime(DateTime.now().millisecondsSinceEpoch);
   }
 
   static Future checkAll() async {
@@ -634,6 +662,7 @@ class Sync {
     }
     status.value = '';
     _busy = false;
+    await Store.setLastSyncTime(DateTime.now().millisecondsSinceEpoch);
     Store.tick.value++;
   }
 }
@@ -792,7 +821,7 @@ class Tmdb {
 
   static String _cleanQuery(String title) {
     var t = title.trim().split('\n').first.trim();
-    t = t.replaceAll(RegExp(r'[\[\]()【】{}《》«»]'), ' ');
+    t = t.replaceAll(RegExp(r'[\[\]【】{}《》«»]'), ' ');
     t = t.replaceAll(RegExp(r'\b(19|20)\d{2}\b'), ' ');
     t = t.replaceAll(RegExp(
         r'\b(2160p|1080p|720p|480p|360p|4k|uhd|bluray|web-?dl|hdrip|hdtv|dvdrip|brrip|fhd|hd)\b',
