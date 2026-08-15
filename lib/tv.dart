@@ -261,10 +261,14 @@ class _TvPlayerState extends State<TvPlayer> {
   VideoPlayerController? _c;
   bool _ready = false, _err = false, _ui = true;
   Timer? _hide, _saver;
+  String _currentQuality = '';
+  String _currentUrl = '';
 
   @override
   void initState() {
     super.initState();
+    _currentQuality = widget.movie.quality;
+    _currentUrl = widget.movie.videoUrl;
     Store.markWatched(widget.movie);
     WakelockPlus.enable();
     _saver = Timer.periodic(const Duration(seconds: 5), (_) => _save());
@@ -280,9 +284,10 @@ class _TvPlayerState extends State<TvPlayer> {
     }
   }
 
-  Future _init() async {
+  Future _init({String? url}) async {
+    final videoUrl = url ?? _currentUrl;
     try {
-      final c = VideoPlayerController.networkUrl(Uri.parse(widget.movie.videoUrl));
+      final c = VideoPlayerController.networkUrl(Uri.parse(videoUrl));
       await c.initialize();
       final saved = Store.getPosition(widget.movie.id);
       if (saved > 0) await c.seekTo(Duration(seconds: saved));
@@ -325,6 +330,14 @@ class _TvPlayerState extends State<TvPlayer> {
     _poke();
   }
 
+  // ✅ إضافة: مفتاح القائمة لفتح محدد الجودة (للريموت)
+  void _handleMenuKey() {
+    if (widget.movie.alts.isNotEmpty) {
+      _showQualitySelector();
+    }
+    _poke();
+  }
+
   KeyEventResult _onKey(FocusNode n, RawKeyEvent e) {
     if (e is! RawKeyDownEvent) return KeyEventResult.handled;
     final k = e.logicalKey;
@@ -341,7 +354,155 @@ class _TvPlayerState extends State<TvPlayer> {
     if (k == LogicalKeyboardKey.arrowLeft) { _seek(-10); return KeyEventResult.handled; }
     if (k == LogicalKeyboardKey.arrowUp) { _vol(0.1); return KeyEventResult.handled; }
     if (k == LogicalKeyboardKey.arrowDown) { _vol(-0.1); return KeyEventResult.handled; }
+    // ✅ إضافة: مفتاح M أو مفتاح القائمة لفتح محدد الجودة
+    if (k == LogicalKeyboardKey.keyM || k == LogicalKeyboardKey.contextMenu) {
+      _handleMenuKey();
+      return KeyEventResult.handled;
+    }
     return KeyEventResult.ignored;
+  }
+
+  // ✅ إضافة: عرض محدد الجودة
+  void _showQualitySelector() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF151B23),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.settings, color: AppTheme.accent, size: 24),
+                const SizedBox(width: 10),
+                Text(
+                  'اختر الجودة',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            
+            // الجودة الحالية
+            Container(
+              decoration: BoxDecoration(
+                color: AppTheme.accent.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppTheme.accent, width: 1),
+              ),
+              child: ListTile(
+                leading: Icon(Icons.check_circle, color: AppTheme.accent, size: 28),
+                title: Text(
+                  _currentQuality.isNotEmpty ? _currentQuality : 'الجودة الافتراضية',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                subtitle: const Text(
+                  'الجودة الحالية',
+                  style: TextStyle(color: Colors.white70, fontSize: 12),
+                ),
+                onTap: () => Navigator.pop(context),
+              ),
+            ),
+            
+            const SizedBox(height: 12),
+            
+            // الجودات البديلة
+            if (widget.movie.alts.isNotEmpty) ...[
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: Text(
+                  'جودات أخرى متاحة',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              ...widget.movie.alts.map((alt) {
+                final q = alt['q'] ?? 'جودة أخرى';
+                final url = alt['url'] ?? '';
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1B2430),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.white12, width: 1),
+                  ),
+                  child: ListTile(
+                    leading: Icon(Icons.hd, color: Colors.white70, size: 28),
+                    title: Text(
+                      q,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    trailing: const Icon(Icons.chevron_right, color: Colors.white54),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _switchQuality(url, q);
+                    },
+                  ),
+                );
+              }),
+            ],
+            
+            const SizedBox(height: 10),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ✅ إضافة: تغيير الجودة مع الحفاظ على موضع المشاهدة
+  Future<void> _switchQuality(String newUrl, String newQuality) async {
+    if (newUrl == _currentUrl) return;
+    
+    // حفظ الموضع الحالي
+    final oldPos = _c?.value.position ?? Duration.zero;
+    
+    // إيقاف المشغل القديم
+    await _c?.pause();
+    _c?.dispose();
+    
+    setState(() {
+      _ready = false;
+      _err = false;
+      _currentUrl = newUrl;
+      _currentQuality = newQuality;
+    });
+    
+    // حفظ الموضع للـ Movie الحالي
+    if (oldPos.inSeconds > 10) {
+      await Store.savePosition(widget.movie.id, oldPos.inSeconds);
+    }
+    
+    // بدء مشغل جديد بالجودة الجديدة
+    await _init(url: newUrl);
+    
+    // الرجوع للموضع السابق
+    final c = _c;
+    if (c != null && c.value.isInitialized && oldPos.inSeconds > 0) {
+      await c.seekTo(oldPos);
+    }
+    
+    _poke();
   }
 
   @override
@@ -375,8 +536,32 @@ class _TvPlayerState extends State<TvPlayer> {
                         padding: const EdgeInsets.all(16),
                         decoration: const BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Colors.black87, Colors.transparent])),
                         child: Row(children: [
-                          Expanded(child: Text(widget.movie.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
-                          if (c != null && c.value.isInitialized) Icon(c.value.isPlaying ? Icons.play_arrow : Icons.pause, color: AppTheme.accent),
+                          // زر الرجوع
+                          IconButton(
+                            icon: const Icon(Icons.arrow_back, color: Colors.white, size: 28),
+                            onPressed: () => Navigator.pop(context),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(widget.movie.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                              if (_currentQuality.isNotEmpty)
+                                Text(_currentQuality, style: TextStyle(fontSize: 13, color: AppTheme.accent, fontWeight: FontWeight.w500)),
+                            ],
+                          )),
+                          if (c != null && c.value.isInitialized)
+                            Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: Icon(c.value.isPlaying ? Icons.play_arrow : Icons.pause, color: AppTheme.accent, size: 28),
+                            ),
+                          // ✅ زر تغيير الجودة - يظهر فقط إذا كان هناك جودات بديلة
+                          if (widget.movie.alts.isNotEmpty)
+                            IconButton(
+                              icon: const Icon(Icons.settings, color: AppTheme.accent, size: 28),
+                              onPressed: _showQualitySelector,
+                              tooltip: 'تغيير الجودة',
+                            ),
                         ]))),
               if (_ui)
                 Positioned(
@@ -391,7 +576,14 @@ class _TvPlayerState extends State<TvPlayer> {
                             Text(_fmt(dur), style: const TextStyle(fontSize: 13, color: Colors.white70)),
                           ]),
                           const SizedBox(height: 10),
-                          const Text('OK تشغيل/إيقاف • يمين/يسار تقديم وتأخير • أعلى/أسفل الصوت', style: TextStyle(fontSize: 12, color: Colors.white54)),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Text('OK تشغيل/إيقاف • يمين/يسار تقديم • أعلى/أسفل الصوت', style: TextStyle(fontSize: 12, color: Colors.white54)),
+                              if (widget.movie.alts.isNotEmpty)
+                                const Text(' • M تغيير الجودة', style: TextStyle(fontSize: 12, color: AppTheme.accent)),
+                            ],
+                          ),
                         ]))),
             ])));
   }
