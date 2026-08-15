@@ -110,7 +110,7 @@ class Movie {
 class Search {
   static String norm(String s) => s
       .toLowerCase()
-      .replaceAll(RegExp(r'[\u064B-\u0652\u0652\u0640]'), '')
+      .replaceAll(RegExp(r'[\u064B-\u0652\u0640]'), '')
       .replaceAll(RegExp(r'[أإآ]'), 'ا')
       .replaceAll('ة', 'ه')
       .replaceAll('ى', 'ي')
@@ -264,7 +264,7 @@ class Tg {
   }
 }
 
-/* ======== تحميل القناة كاملة (دفعات حتى النهاية) ======== */
+/* ======== تحميل القناة كاملة ======== */
 class BulkLoader {
   static final Set<String> _running = {};
   static final ValueNotifier<String> status = ValueNotifier('');
@@ -374,8 +374,11 @@ class Store {
     tick.value++;
   }
 
+  /* ---- الحسابات المتعددة 👥 (42) ---- */
+  static String _pk(String k) => '${k}_${getString('profile', 'الرئيسي')}';
+
   /* ---- المفضلة ---- */
-  static List<Movie> favorites() => ((_st.get('favorites') as List?) ?? [])
+  static List<Movie> favorites() => ((_st.get(_pk('favorites')) as List?) ?? [])
       .map((e) => Movie.fromJson(Map<String, dynamic>.from(e)))
       .toList();
   static bool isFav(String id) => favorites().any((e) => e.id == id);
@@ -386,7 +389,7 @@ class Store {
     } else {
       f.insert(0, m);
     }
-    await _st.put('favorites', f.map((e) => e.toJson()).toList());
+    await _st.put(_pk('favorites'), f.map((e) => e.toJson()).toList());
     tick.value++;
   }
 
@@ -407,7 +410,7 @@ class Store {
   }
 
   /* ---- التقييم ---- */
-  static Map<String, int> ratings() => Map<String, int>.from(_st.get('ratings') ?? {});
+  static Map<String, int> ratings() => Map<String, int>.from(_st.get(_pk('ratings')) ?? {});
   static Future rate(String id, int stars) async {
     final r = ratings();
     if (stars <= 0) {
@@ -415,12 +418,12 @@ class Store {
     } else {
       r[id] = stars;
     }
-    await _st.put('ratings', r);
+    await _st.put(_pk('ratings'), r);
     tick.value++;
   }
 
   /* ---- سجل المشاهدة ---- */
-  static List<Movie> history() => ((_st.get('history') as List?) ?? [])
+  static List<Movie> history() => ((_st.get(_pk('history')) as List?) ?? [])
       .map((e) => Movie.fromJson(Map<String, dynamic>.from(e)))
       .toList();
   static Future markWatched(Movie m) async {
@@ -429,17 +432,17 @@ class Store {
     final h = history()..removeWhere((e) => e.id == m.id);
     h.insert(0, m);
     if (h.length > 300) h.removeRange(300, h.length);
-    await _st.put('history', h.map((e) => e.toJson()).toList());
+    await _st.put(_pk('history'), h.map((e) => e.toJson()).toList());
     tick.value++;
   }
 
   static Future markWatchedRemove(String id) async {
     final h = history()..removeWhere((e) => e.id == id);
-    await _st.put('history', h.map((e) => e.toJson()).toList());
+    await _st.put(_pk('history'), h.map((e) => e.toJson()).toList());
     tick.value++;
   }
 
-  /* ---- الستريك 🔥 (أيام متتالية) ---- */
+  /* ---- الستريك 🔥 ---- */
   static void touchStreak() {
     final today = DateTime.now().toString().substring(0, 10);
     final last = getString('lastDay', '');
@@ -467,6 +470,42 @@ class Store {
     l.insert(0, {'user': user, 'text': text, 'date': DateTime.now().millisecondsSinceEpoch});
     await _st.put('com_$id', l);
     tick.value++;
+  }
+
+  /* ---- التثبيت 📌 (19) ---- */
+  static List<String> pinned() => List<String>.from(prefs()['pinned'] ?? []);
+  static bool isPinned(String id) => pinned().contains(id);
+  static Future togglePin(String id) async {
+    final l = pinned();
+    if (l.contains(id)) {
+      l.remove(id);
+    } else {
+      l.insert(0, id);
+    }
+    await setPref('pinned', l);
+  }
+
+  /* ---- القبو السري 📦 (43) ---- */
+  static List<String> vaultMovies() => List<String>.from(prefs()['vaultMovies'] ?? []);
+  static List<String> vaultChannels() => List<String>.from(prefs()['vaultChannels'] ?? []);
+  static Future toggleVaultMovie(String id) async {
+    final l = vaultMovies();
+    if (l.contains(id)) {
+      l.remove(id);
+    } else {
+      l.add(id);
+    }
+    await setPref('vaultMovies', l);
+  }
+
+  static Future toggleVaultChannel(String u) async {
+    final l = vaultChannels();
+    if (l.contains(u)) {
+      l.remove(u);
+    } else {
+      l.add(u);
+    }
+    await setPref('vaultChannels', l);
   }
 
   /* ---- موضع المشاهدة ---- */
@@ -564,7 +603,7 @@ class Store {
   }
 }
 
-/* ======== المزامنة الدورية + إشعارات الأفلام الجديدة ======== */
+/* ======== المزامنة الدورية ======== */
 class Sync {
   static bool _busy = false;
   static Timer? _timer;
@@ -744,7 +783,7 @@ class Downloader {
   }
 }
 
-/* ======== TMDB محسّن (يستخرج الاسم الإنجليزي من الوصف) ======== */
+/* ======== TMDB محسّن ======== */
 class Tmdb {
   static const String apiKey = '9ba4e29354937364c2202857afcd7f94';
   static final Dio _d = Dio(BaseOptions(
@@ -805,6 +844,7 @@ class Tmdb {
         if (res != null && res.isNotEmpty) {
           final movie = res[0];
           return {
+            'id': movie['id'],
             'vote': (movie['vote_average'] ?? 0).toString(),
             'overview': movie['overview'] ?? '',
             'poster': (movie['poster_path'] != null &&
@@ -820,7 +860,7 @@ class Tmdb {
   }
 }
 
-/* ======== الذكاء: الأكثر مشاهدة + اقتراحات + دمج التكرار ======== */
+/* ======== الذكاء ======== */
 class Smart {
   static final Dio _d = Dio(BaseOptions(
       connectTimeout: const Duration(seconds: 8),
@@ -874,13 +914,14 @@ class Smart {
   }
 }
 
-/* ======== الفرز (7 أوضاع) ======== */
+/* ======== الفرز (مع فرز عربي ذكي 18) ======== */
 class Sorter {
   static List<Movie> apply(List<Movie> src, String mode) {
     final l = List<Movie>.from(src);
     switch (mode) {
       case 'az':
-        l.sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+        String key(String t) => t.toLowerCase().replaceAll(RegExp(r'^ال'), '');
+        l.sort((a, b) => key(a.title).compareTo(key(b.title)));
         break;
       case 'year_desc':
         l.sort((a, b) => b.year.compareTo(a.year));
