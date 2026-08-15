@@ -378,19 +378,32 @@ class Profiles {
   }
 
   static Future vaultChannelsDialog(BuildContext context) async {
-    await showDialog(context: context, builder: (_) => ValueListenableBuilder<int>(valueListenable: Store.tick,
-        builder: (_, __, ___) => AlertDialog(backgroundColor: const Color(0xFF151B23),
-            title: const Text('📦 إخفاء قنوات'),
-            content: SizedBox(width: double.maxFinite, child: ListView(shrinkWrap: true,
-                children: Store.channels().map((c) {
-                  final hid = Store.vaultChannels().contains(c.username);
-                  return ListTile(dense: true,
-                      title: Text(c.title.isEmpty ? c.username : c.title, style: const TextStyle(fontSize: 13)),
-                      trailing: Icon(hid ? Icons.visibility_off : Icons.visibility, color: hid ? AppTheme.accent : Colors.grey),
-                      onTap: () => Store.toggleVaultChannel(c.username));
-                }).toList()))));
+    await showDialog(
+      context: context,
+      builder: (_) => ValueListenableBuilder<int>(
+        valueListenable: Store.tick,
+        builder: (_, __, ___) => AlertDialog(
+          backgroundColor: const Color(0xFF151B23),
+          title: const Text('📦 إخفاء قنوات'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: ListView(
+              shrinkWrap: true,
+              children: Store.channels().map((c) {
+                final hid = Store.vaultChannels().contains(c.username);
+                return ListTile(
+                  dense: true,
+                  title: Text(c.title.isEmpty ? c.username : c.title, style: const TextStyle(fontSize: 13)),
+                  trailing: Icon(hid ? Icons.visibility_off : Icons.visibility, color: hid ? AppTheme.accent : Colors.grey),
+                  onTap: () => Store.toggleVaultChannel(c.username),
+                );
+              }).toList(),
+            ),
+          ),
+        ),
+      ),
+    );
   }
-}
 
 /* ======== 📦 القبو السري (43) ======== */
 class Vault {
