@@ -1,4 +1,3 @@
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -7,13 +6,9 @@ import 'lang.dart';
 import 'ui.dart';
 import 'tv.dart';
 import 'notify.dart';
-import 'auth.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  try {
-    await Firebase.initializeApp();
-  } catch (_) {}
   await Hive.initFlutter();
   await Store.init();
   await Notify.init();
@@ -50,7 +45,7 @@ class Root extends StatelessWidget {
           debugShowCheckedModeBanner: false,
           locale: Locale(lang),
           theme: _th(),
-          home: Auth.hasChosen ? const Splash() : const LoginScreen(),
+          home: const Splash(),
         ),
       );
 }
