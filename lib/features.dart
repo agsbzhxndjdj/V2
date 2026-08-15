@@ -8,7 +8,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:path_provider/path_provider.dart';
 import 'core.dart';
-import 'auth.dart';
 import 'lang.dart';
 import 'ui.dart';
 
@@ -402,7 +401,7 @@ class CommentsSheet {
                   Expanded(child: TextField(controller: ctrl, decoration: InputDecoration(hintText: 'اكتب تعليقاً…', isDense: true, filled: true, fillColor: const Color(0xFF0B0F14), border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none)))),
                   IconButton(icon: Icon(Icons.send, color: AppTheme.accent), onPressed: () async {
                     if (ctrl.text.trim().isNotEmpty) {
-                      await Store.addComment(m.id, ctrl.text.trim(), Auth.displayName);
+                      await Store.addComment(m.id, ctrl.text.trim(), 'ضيف');
                       ctrl.clear();
                     }
                   }),
