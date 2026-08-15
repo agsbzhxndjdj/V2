@@ -6,6 +6,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:path_provider/path_provider.dart';
 import 'core.dart';
 import 'lang.dart';
+import 'features2.dart';
 
 /* ======== صفحة الإعدادات ======== */
 class SettingsPage extends StatelessWidget {
@@ -18,7 +19,6 @@ class SettingsPage extends StatelessWidget {
               ? Text(sub, style: const TextStyle(fontSize: 11))
               : null,
           value: v,
-          activeColor: null,
           onChanged: (x) => f(x));
 
   Widget _header(String t) => Padding(
@@ -98,7 +98,7 @@ class SettingsPage extends StatelessWidget {
               _sw(Lang.t('kidsMode'), Lang.t('kidsModeHint'),
                   Store.getBool('kidsMode'),
                   (v) => Store.setPref('kidsMode', v)),
-              /* ---- الأوضاع الذكية ✨ ---- */
+              /* ---- الأوضاع الذكية ---- */
               _header('الأوضاع الذكية ⚙️'),
               _sw('ثيم تلقائي ليلي 🌙', null, Store.getBool('autoTheme'),
                   (v) => Store.setPref('autoTheme', v)),
@@ -109,8 +109,90 @@ class SettingsPage extends StatelessWidget {
                   (v) => Store.setPref('dataSaver', v)),
               _sw('وضع البطارية 🔋', null, Store.getBool('battery'),
                   (v) => Store.setPref('battery', v)),
-              //* ---- الحساب (محذوف) ---- */
-          
+              /* ---- العرض والتنظيم 🆕 ---- */
+              _header('العرض والتنظيم'),
+              _sw('🔄 تجميع الأجزاء تلقائياً', null,
+                  Store.getBool('groupParts', true),
+                  (v) => Store.setPref('groupParts', v)),
+              _sw('✨ انتقالات سينمائية', null, Store.getBool('heroFx', true),
+                  (v) => Store.setPref('heroFx', v)),
+              _sw('🌌 خلفية حية', 'بوستر آخر مشاهدة كخلفية',
+                  Store.getBool('liveWall'), (v) => Store.setPref('liveWall', v)),
+              /* ---- الحسابات 👥 ---- */
+              _header('الحسابات 👥'),
+              ...Profiles.all().map((n) => RadioListTile<String>(
+                  dense: true,
+                  value: n,
+                  groupValue: Profiles.current,
+                  title: Text(n, style: const TextStyle(fontSize: 13)),
+                  onChanged: (v) => Profiles.switchTo(v!))),
+              ListTile(
+                  dense: true,
+                  leading: const Icon(Icons.person_add_outlined, size: 20),
+                  title: const Text('حساب جديد',
+                      style: TextStyle(fontSize: 13)),
+                  onTap: () => Profiles.addDialog(context)),
+              /* ---- القبو السري 📦 ---- */
+              _header('القبو السري 📦'),
+              ListTile(
+                  dense: true,
+                  leading: const Icon(Icons.pin_outlined, size: 20),
+                  title: const Text('تعيين/تغيير الرمز',
+                      style: TextStyle(fontSize: 13)),
+                  onTap: () => Profiles.setPinDialog(context)),
+              ListTile(
+                  dense: true,
+                  leading: Icon(
+                      Vault.unlocked ? Icons.lock_open : Icons.lock_outline,
+                      size: 20),
+                  title: Text(Vault.unlocked ? 'قفل القبو' : 'فتح القبو',
+                      style: const TextStyle(fontSize: 13)),
+                  onTap: () async {
+                    if (Vault.unlocked) {
+                      Vault.unlocked = false;
+                      Store.tick.value++;
+                    } else {
+                      await Vault.ask(context);
+                    }
+                  }),
+              ListTile(
+                  dense: true,
+                  leading: const Icon(Icons.visibility_off_outlined, size: 20),
+                  title: const Text('إخفاء قنوات',
+                      style: TextStyle(fontSize: 13)),
+                  onTap: () => Profiles.vaultChannelsDialog(context)),
+              /* ---- تصدير ومشاركة ---- */
+              _header('تصدير ومشاركة'),
+              ListTile(
+                  dense: true,
+                  leading: const Icon(Icons.history_outlined, size: 20),
+                  title: const Text('تصدير السجل 📤',
+                      style: TextStyle(fontSize: 13)),
+                  onTap: () async {
+                    final p = await Exporter.history();
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('حُفظ: $p')));
+                    }
+                  }),
+              ListTile(
+                  dense: true,
+                  leading: const Icon(Icons.upload_file, size: 20),
+                  title: const Text('تصدير القوائم',
+                      style: TextStyle(fontSize: 13)),
+                  onTap: () async {
+                    final p = await Exporter.playlists();
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('حُفظ: $p')));
+                    }
+                  }),
+              ListTile(
+                  dense: true,
+                  leading: const Icon(Icons.file_download, size: 20),
+                  title: const Text('استيراد القوائم',
+                      style: TextStyle(fontSize: 13)),
+                  onTap: () => Exporter.importDialog(context)),
               /* ---- التحميل ---- */
               _header(Lang.t('downloads')),
               _sw(Lang.t('wifiOnly'), Lang.t('wifiNeeded'),
@@ -165,8 +247,8 @@ class SettingsPage extends StatelessWidget {
             content: TextField(
                 controller: ctrl,
                 maxLines: 6,
-                decoration: const InputDecoration(
-                    hintText: 'Paste backup JSON…')),
+                decoration:
+                    const InputDecoration(hintText: 'Paste backup JSON…')),
             actions: [
               TextButton(
                   onPressed: () => Navigator.pop(context),
@@ -234,12 +316,11 @@ class StatsPage extends StatelessWidget {
           ...ach.map((a) => Opacity(
               opacity: a['on'] ? 1 : 0.35,
               child: ListTile(
-                  leading: Text(a['icon'], style: const TextStyle(fontSize: 28)),
+                  leading:
+                      Text(a['icon'], style: const TextStyle(fontSize: 28)),
                   title: Text(a['t'], style: const TextStyle(fontSize: 13)),
                   trailing: Icon(
-                      a['on']
-                          ? Icons.verified
-                          : Icons.lock_outline,
+                      a['on'] ? Icons.verified : Icons.lock_outline,
                       color: a['on'] ? AppTheme.accent : Colors.grey,
                       size: 20)))),
         ]));
@@ -259,8 +340,7 @@ class StatsPage extends StatelessWidget {
                     fontWeight: FontWeight.bold,
                     color: AppTheme.accent)),
             const SizedBox(height: 4),
-            Text(l,
-                style: const TextStyle(fontSize: 11, color: Colors.grey)),
+            Text(l, style: const TextStyle(fontSize: 11, color: Colors.grey)),
           ])));
 }
 
@@ -287,8 +367,7 @@ void newPlaylistDialog(BuildContext context) {
           title: Text(Lang.t('newPlaylist')),
           content: TextField(
               controller: ctrl,
-              decoration:
-                  const InputDecoration(hintText: '…')),
+              decoration: const InputDecoration(hintText: '…')),
           actions: [
             TextButton(
                 onPressed: () => Navigator.pop(context),
