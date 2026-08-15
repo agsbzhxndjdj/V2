@@ -1,18 +1,24 @@
 {
   "project_info": {
     "project_number": "1028373813571",
+    "firebase_url": "https://tele-cinema-default-rtdb.firebaseio.com",
     "project_id": "tele-cinema",
     "storage_bucket": "tele-cinema.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:1028373813571:android:d2f8cb3d5232285dcdb7f6",
+        "mobilesdk_app_id": "1:1028373813571:android:4eaf97cbd57f020bcdb7f6",
         "android_client_info": {
           "package_name": "com.example.tele_cinema"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "1028373813571-q7fn1jo3vv0qqnni2umhhuo029mrvog1.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyDThT37CJIj5XAEz-97MUhqWzG9qDO298k"
@@ -20,7 +26,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1028373813571-q7fn1jo3vv0qqnni2umhhuo029mrvog1.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }
