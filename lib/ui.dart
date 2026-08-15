@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:async';
 import 'dart:math';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -10,6 +11,9 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import 'core.dart';
 import 'lang.dart';
 import 'extra.dart';
+import 'features.dart';
+import 'announce.dart';
+import 'auth.dart';
 
 String _fmt(Duration d) {
   final h = d.inHours, m = d.inMinutes % 60, s = d.inSeconds % 60;
@@ -82,6 +86,12 @@ class _HomePageState extends State<HomePage> {
     if (Store.channels().isNotEmpty && Store.all().isEmpty) _refresh();
     _loadSmart();
     Downloader.wifiBlocked.addListener(_wifiToast);
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) {
+        Announce.checkAndShow(context);
+        SmartDownload.check();
+      }
+    });
   }
 
   void _wifiToast() {
@@ -111,7 +121,6 @@ class _HomePageState extends State<HomePage> {
     if (mounted) setState(() { _popular = pm; _reco = Smart.recommend(all); });
   }
 
-  /* تحميل القنوات كاملة (دفعات حتى النهاية) */
   Future _refresh() async {
     if (_busy) return;
     setState(() => _busy = true);
@@ -135,7 +144,7 @@ class _HomePageState extends State<HomePage> {
     }
     if (_fq.isNotEmpty) src = src.where((m) => m.quality == _fq).toList();
     if (_fg.isNotEmpty) src = src.where((m) => m.genres.contains(_fg)).toList();
-    return Sorter.apply(Search.run(src, _search.text), Store.sortMode);
+    return Sorter.apply(Search.run(Filters.apply(src), _search.text), Store.sortMode);
   }
 
   void _random() {
@@ -178,13 +187,22 @@ class _HomePageState extends State<HomePage> {
             _sortItem('smart', '✨ ذكي (حسب ذوقك)'),
           ],
         ),
+        IconButton(icon: const Icon(Icons.notifications_outlined), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AnnouncementsScreen()))),
+        IconButton(icon: const Icon(Icons.explore_outlined), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DiscoverScreen()))),
+        IconButton(icon: const Icon(Icons.emoji_events_outlined), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AchievementsScreen()))),
         IconButton(icon: const Icon(Icons.settings), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsPage()))),
         IconButton(icon: const Icon(Icons.refresh), onPressed: _refresh),
       ], bottom: _searching
           ? PreferredSize(preferredSize: const Size.fromHeight(56),
               child: Padding(padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
                   child: TextField(controller: _search, onChanged: (_) => setState(() {}),
-                      decoration: InputDecoration(hintText: Lang.t('searchHint'), prefixIcon: const Icon(Icons.search), filled: true, fillColor: const Color(0xFF151B23), border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none)))))
+                      decoration: InputDecoration(hintText: Lang.t('searchHint'), prefixIcon: const Icon(Icons.search),
+                          suffixIcon: IconButton(icon: Icon(Icons.tune, color: Filters.active ? AppTheme.accent : Colors.grey),
+                              onPressed: () async {
+                                await showDialog(context: context, builder: (_) => const AdvancedFilterDialog());
+                                setState(() {});
+                              }),
+                          filled: true, fillColor: const Color(0xFF151B23), border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none)))))
           : null),
       body: RefreshIndicator(onRefresh: _refresh,
         child: ValueListenableBuilder<String>(valueListenable: BulkLoader.status,
@@ -267,7 +285,7 @@ class MovieCard extends StatelessWidget {
       child: InkWell(onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => MovieDetailsScreen(m: m))),
           child: Stack(fit: StackFit.expand, children: [
             m.poster.isNotEmpty
-                ? CachedNetworkImage(imageUrl: m.poster, fit: BoxFit.cover, placeholder: (_, __) => _ph(), errorWidget: (_, __, ___) => _ph())
+                ? Hero(tag: 'poster_${m.id}', child: CachedNetworkImage(imageUrl: m.poster, fit: BoxFit.cover, placeholder: (_, __) => _ph(), errorWidget: (_, __, ___) => _ph()))
                 : _ph(),
             Positioned(left: 0, right: 0, bottom: 0,
                 child: Container(padding: const EdgeInsets.fromLTRB(6, 14, 6, 6),
@@ -323,7 +341,6 @@ class _MovieDetailsScreenState extends State<MovieDetailsScreen> {
   @override
   void initState() {
     super.initState();
-    // ✨ تمرير الوصف لاستخراج الاسم الإنجليزي من الوصف
     Tmdb.search(widget.m.title, description: widget.m.description).then((v) {
       if (mounted && v != null) setState(() => _tmdb = v);
     });
@@ -342,7 +359,10 @@ class _MovieDetailsScreenState extends State<MovieDetailsScreen> {
     final year = (_tmdb?['year'] ?? '').toString();
     return Scaffold(backgroundColor: const Color(0xFF0B0F14),
         body: Stack(fit: StackFit.expand, children: [
-          if (bg.isNotEmpty) CachedNetworkImage(imageUrl: bg, fit: BoxFit.cover, errorWidget: (_, __, ___) => const SizedBox()),
+          if (bg.isNotEmpty)
+            GestureDetector(onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PosterScreen(m: m))),
+                child: ImageFiltered(imageFilter: ui.ImageFilter.blur(sigmaX: Store.getBool('battery') ? 8 : 22, sigmaY: Store.getBool('battery') ? 8 : 22),
+                    child: Hero(tag: 'poster_${m.id}', child: CachedNetworkImage(imageUrl: bg, fit: BoxFit.cover, errorWidget: (_, __, ___) => const SizedBox())))),
           Container(decoration: const BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Colors.black87, Colors.transparent, Color(0xFF0B0F14)]))),
           SafeArea(child: Column(children: [
             Row(children: [
@@ -364,9 +384,12 @@ class _MovieDetailsScreenState extends State<MovieDetailsScreen> {
                   ValueListenableBuilder<int>(valueListenable: Store.tick, builder: (_, __, ___) => Row(children: [
                         ...List.generate(5, (i) => IconButton(
                             icon: Icon(i < (Store.ratings()[m.id] ?? 0) ? Icons.star : Icons.star_border, size: 22, color: AppTheme.accent),
-                            onPressed: () => Store.rate(m.id, i + 1))),
+                            onPressed: () { Store.rate(m.id, i + 1); CloudRate.send(m, i + 1); })),
                         const Spacer(),
                         IconButton(icon: const Icon(Icons.playlist_add, color: Colors.white70), onPressed: () => showPlaylistDialog(context, m)),
+                        IconButton(icon: const Icon(Icons.comment_outlined, color: Colors.white70), onPressed: () => CommentsSheet.show(context, m)),
+                        IconButton(icon: const Icon(Icons.music_note_outlined, color: Colors.white70), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => TrailerScreen(query: '${m.title} OST soundtrack')))),
+                        IconButton(icon: const Icon(Icons.share_outlined, color: Colors.white70), onPressed: () => ShareCard.show(context, m)),
                       ])),
                   Wrap(spacing: 8, runSpacing: 6, children: [
                     if (vote != '0' && vote != '0.0') _chip('⭐ $vote'),
@@ -470,7 +493,10 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     try {
       final c = widget.filePath != null
           ? VideoPlayerController.file(File(widget.filePath!))
-          : VideoPlayerController.networkUrl(Uri.parse(widget.url!));
+          : VideoPlayerController.networkUrl(Uri.parse(
+              (Store.getBool('dataSaver') && widget.movie != null && widget.movie!.alts.isNotEmpty)
+                  ? (widget.movie!.alts.last['url'] ?? widget.url!)
+                  : widget.url!));
       c.addListener(() {
         if (!mounted) return;
         setState(() {});
@@ -559,7 +585,6 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
             ]));
   }
 
-  /* مبدل الجودات */
   void _qualityMenu() {
     final m = widget.movie!;
     showModalBottomSheet(backgroundColor: const Color(0xFF151B23), context: context,
@@ -928,7 +953,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
       } else {
         await Store.addChannel(Channel(u, title: p.title, avatar: p.avatar));
         await Store.saveMovies(u, p.movies);
-        BulkLoader.loadAll(u); // تحميل القناة كاملة في الخلفية
+        BulkLoader.loadAll(u);
         _ctrl.clear();
         App.scope.value = u;
         App.tab.value = 0;
