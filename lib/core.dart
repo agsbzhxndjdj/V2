@@ -5,6 +5,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 /* ======== إعدادات الخادم ======== */
 class ApiConfig {
@@ -109,7 +110,7 @@ class Movie {
 class Search {
   static String norm(String s) => s
       .toLowerCase()
-      .replaceAll(RegExp(r'[\u064B-\u0652\u0640]'), '')
+      .replaceAll(RegExp(r'[\u064B-\u0652\u0652\u0640]'), '')
       .replaceAll(RegExp(r'[أإآ]'), 'ا')
       .replaceAll('ة', 'ه')
       .replaceAll('ى', 'ي')
@@ -220,7 +221,6 @@ class Tg {
         .where((e) => e.isNotEmpty)
         .toList();
     final title = lines.isNotEmpty ? lines.first : 'فيديو #$mid';
-    // ✨ إذا أرسل البوت "جودة أخرى" أو فارغ → نستخرجها من الوصف
     var quality = (serverQuality == null ||
             serverQuality.isEmpty ||
             serverQuality == 'جودة أخرى')
@@ -425,6 +425,7 @@ class Store {
       .toList();
   static Future markWatched(Movie m) async {
     if (getBool('incognito')) return;
+    touchStreak();
     final h = history()..removeWhere((e) => e.id == m.id);
     h.insert(0, m);
     if (h.length > 300) h.removeRange(300, h.length);
@@ -435,6 +436,36 @@ class Store {
   static Future markWatchedRemove(String id) async {
     final h = history()..removeWhere((e) => e.id == id);
     await _st.put('history', h.map((e) => e.toJson()).toList());
+    tick.value++;
+  }
+
+  /* ---- الستريك 🔥 (أيام متتالية) ---- */
+  static void touchStreak() {
+    final today = DateTime.now().toString().substring(0, 10);
+    final last = getString('lastDay', '');
+    if (last == today) return;
+    final yesterday =
+        DateTime.now().subtract(const Duration(days: 1)).toString().substring(0, 10);
+    int cur = (prefs()['streak'] as int?) ?? 0;
+    cur = (last == yesterday) ? cur + 1 : 1;
+    setPref('lastDay', today);
+    setPref('streak', cur);
+    if (cur > ((prefs()['bestStreak'] as int?) ?? 0)) setPref('bestStreak', cur);
+  }
+
+  static int get streak => (prefs()['streak'] as int?) ?? 0;
+  static int get bestStreak => (prefs()['bestStreak'] as int?) ?? 0;
+
+  /* ---- التعليقات 💬 ---- */
+  static List<Map<String, dynamic>> commentsOf(String id) =>
+      ((_st.get('com_$id') as List?) ?? [])
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+
+  static Future addComment(String id, String text, String user) async {
+    final l = commentsOf(id);
+    l.insert(0, {'user': user, 'text': text, 'date': DateTime.now().millisecondsSinceEpoch});
+    await _st.put('com_$id', l);
     tick.value++;
   }
 
@@ -607,7 +638,7 @@ class Downloader {
     }
     if (Store.getBool('wifiOnly')) {
       final r = await Connectivity().checkConnectivity();
-      if (r != ConnectivityResult.wifi) {
+      if (!r.contains(ConnectivityResult.wifi)) {
         wifiBlocked.value = true;
         return false;
       }
@@ -735,7 +766,6 @@ class Tmdb {
     return t;
   }
 
-  // ✨ استخراج اسم إنجليزي (كلمات تبدأ بحرف كبير) من أي نص
   static String? _extractEnglish(String s) {
     final m = RegExp(r"([A-Z][a-zA-Z0-9'\-]*(?:\s+[A-Z][a-zA-Z0-9'\-]*)+)")
         .firstMatch(s);
@@ -760,7 +790,7 @@ class Tmdb {
     final par = RegExp(r'\(([^)]+)\)').firstMatch(title);
     if (par != null) addQ(par.group(1));
     addQ(_extractEnglish(title));
-    addQ(_extractEnglish(description)); // ✨ الاسم الإنجليزي من الوصف
+    addQ(_extractEnglish(description));
     addQ(_englishOnly(_cleanQuery(title)));
 
     for (final q in queries) {
