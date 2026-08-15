@@ -34,32 +34,42 @@ jobs:
           if [ -f telecinema.keystore ]; then cp telecinema.keystore android/app/telecinema.keystore; echo "keystore copied OK"; fi
           ls -la android/app/google-services.json android/app/telecinema.keystore || true
 
-      - name: Patch gradle (google-services via classpath + signing)
+      - name: Patch gradle (smart patch for Flutter 3.24)
         run: |
           python3 - << 'PYEOF'
-          # 1) إضافة classpath في android/build.gradle
-          p = 'android/build.gradle'
+          import re
+
+          # 1) settings.gradle: إضافة google-services في plugins block
+          p = 'android/settings.gradle'
           s = open(p).read()
           if 'google-services' not in s:
-              if 'buildscript {' in s:
-                  # الطريقة الكلاسيكية
-                  s = s.replace('ext.kotlin_version', 'ext.kotlin_version', 1)  # لا تغيير
-                  if 'dependencies {' in s:
-                      s = s.replace('dependencies {', 'dependencies {\n        classpath "com.google.gms:google-services:4.4.0"', 1)
-                  elif 'subprojects {' in s:
-                      s = s.replace('buildscript {', 'buildscript {\n    dependencies {\n        classpath "com.google.gms:google-services:4.4.0"\n    }', 1)
+              # ابحث عن plugins { ... } block وأضف قبل } الأخير
+              m = re.search(r'plugins\s*\{([^}]*)\}', s)
+              if m:
+                  old = m.group(0)
+                  # أضف قبل } الإغلاق
+                  new = old[:-1] + '\n    id "com.google.gms.google-services" version "4.4.0" apply false\n}'
+                  s = s.replace(old, new)
+                  open(p, 'w').write(s)
+                  print('settings.gradle patched')
               else:
-                  # إذا كان build.gradle جديد (plugins block) — نضيف classpath block
-                  s = 'buildscript {\n    dependencies {\n        classpath "com.google.gms:google-services:4.4.0"\n    }\n}\n\n' + s
-          open(p, 'w').write(s)
-          print('build.gradle patched')
+                  # fallback: append block كامل
+                  s += '\npluginManagement {\n    plugins {\n        id "com.google.gms.google-services" version "4.4.0" apply false\n    }\n}\n'
+                  open(p, 'w').write(s)
+                  print('settings.gradle fallback patched')
 
-          # 2) تعديل android/app/build.gradle
+          # 2) app/build.gradle: إضافة google-services plugin بدون version + signing
           p = 'android/app/build.gradle'
           s = open(p).read()
-          # إضافة apply plugin
-          if 'google-services' not in s:
-              s = s.rstrip() + '\napply plugin: "com.google.gms.google-services"\n'
+
+          # إضافة plugin (id فقط، بدون version — لأنه معرّف في settings)
+          if 'com.google.gms.google-services' not in s:
+              # ابحث عن plugins { } block
+              m = re.search(r'plugins\s*\{([^}]*)\}', s)
+              if m:
+                  old = m.group(0)
+                  new = old[:-1] + '\n    id "com.google.gms.google-services"\n}'
+                  s = s.replace(old, new)
 
           # توقيع release
           sig = """    signingConfigs {
@@ -76,6 +86,12 @@ jobs:
           s = s.replace('signingConfig signingConfigs.debug', 'signingConfig signingConfigs.release')
           open(p, 'w').write(s)
           print('app/build.gradle patched')
+
+          # عرض النتيجة للتحقق
+          print('=== settings.gradle plugins block ===')
+          print(open('android/settings.gradle').read()[:1500])
+          print('=== app/build.gradle plugins block ===')
+          print(open('android/app/build.gradle').read()[:1500])
           PYEOF
 
       - name: Patch AndroidManifest (HTTP + الاسم + Android TV + الإشعارات)
