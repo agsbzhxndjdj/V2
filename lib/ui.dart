@@ -13,7 +13,6 @@ import 'lang.dart';
 import 'extra.dart';
 import 'features.dart';
 import 'announce.dart';
-import 'auth.dart';
 
 String _fmt(Duration d) {
   final h = d.inHours, m = d.inMinutes % 60, s = d.inSeconds % 60;
@@ -384,7 +383,7 @@ class _MovieDetailsScreenState extends State<MovieDetailsScreen> {
                   ValueListenableBuilder<int>(valueListenable: Store.tick, builder: (_, __, ___) => Row(children: [
                         ...List.generate(5, (i) => IconButton(
                             icon: Icon(i < (Store.ratings()[m.id] ?? 0) ? Icons.star : Icons.star_border, size: 22, color: AppTheme.accent),
-                            onPressed: () { Store.rate(m.id, i + 1); CloudRate.send(m, i + 1); })),
+                            onPressed: () { Store.rate(m.id, i + 1); }
                         const Spacer(),
                         IconButton(icon: const Icon(Icons.playlist_add, color: Colors.white70), onPressed: () => showPlaylistDialog(context, m)),
                         IconButton(icon: const Icon(Icons.comment_outlined, color: Colors.white70), onPressed: () => CommentsSheet.show(context, m)),
