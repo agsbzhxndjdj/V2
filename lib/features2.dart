@@ -121,7 +121,7 @@ class CalendarScreen extends StatelessWidget {
   }
 }
 
-/* ======== 📈 ملخص شهري + رسم بياني (22+24) ======== */
+/* ======== 📈 ملخص شهري (22+24) ======== */
 class MonthlyScreen extends StatelessWidget {
   const MonthlyScreen({super.key});
   bool _sameMonth(int ms, DateTime now) {
@@ -142,7 +142,7 @@ class MonthlyScreen extends StatelessWidget {
       days.add(Store.history().where((m) => DateTime.fromMillisecondsSinceEpoch(m.date).toString().substring(0, 10) == k).length);
       labels.add('${d.day}');
     }
-    final mx = days.reduce(max).clamp(1, 999);
+    final mx = days.isEmpty ? 1 : days.reduce(max).clamp(1, 999);
     return Scaffold(appBar: AppBar(title: const Text('ملخص الشهر 📈')),
         body: ListView(padding: const EdgeInsets.all(16), children: [
           Row(children: [
@@ -404,6 +404,7 @@ class Profiles {
       ),
     );
   }
+}
 
 /* ======== 📦 القبو السري (43) ======== */
 class Vault {
