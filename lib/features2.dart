@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'core.dart';
+import 'lang.dart';
 import 'ui.dart';
 
 /* ======== 🔄 تجميع الأجزاء تلقائياً (10) ======== */
@@ -230,23 +231,50 @@ class _ShotGameState extends State<ShotGame> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: Text('لقطة اليوم 📸 النقاط: $_score')),
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('لقطة اليوم 📸 النقاط: $_score')),
       body: _m == null
           ? const Center(child: Text('لا توجد أفلام بعد', style: TextStyle(color: Colors.grey)))
-          : ListView(padding: const EdgeInsets.all(16), children: [
-              const Text('خمّن الفيلم من اللقطة:', style: TextStyle(color: Colors.grey, fontSize: 12)),
-              const SizedBox(height: 10),
-              ClipRRect(borderRadius: BorderRadius.circular(16),
-                  child: SizedBox(height: 220, width: double.infinity,
-                      child: FittedBox(fit: BoxFit.cover, alignment: _al, clipBehavior: Clip.hardEdge,
-                          child: SizedBox(height: 400, width: 300, child: CachedNetworkImage(imageUrl: _m!.poster, fit: BoxFit.cover)))))),
-              const SizedBox(height: 16),
-              ..._opts.map((o) => Padding(padding: const EdgeInsets.only(bottom: 8),
-                  child: FilledButton(
-                      onPressed: () { if (o.id == _m!.id) _score++; _next(); },
+          : ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                const Text('خمّن الفيلم من اللقطة:', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                const SizedBox(height: 10),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: SizedBox(
+                    height: 220,
+                    width: double.infinity,
+                    child: FittedBox(
+                      fit: BoxFit.cover,
+                      alignment: _al,
+                      clipBehavior: Clip.hardEdge,
+                      child: SizedBox(
+                        height: 400,
+                        width: 300,
+                        child: CachedNetworkImage(imageUrl: _m!.poster, fit: BoxFit.cover),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                for (final o in _opts)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: FilledButton(
+                      onPressed: () {
+                        if (o.id == _m!.id) _score++;
+                        _next();
+                      },
                       style: FilledButton.styleFrom(backgroundColor: const Color(0xFF151B23), foregroundColor: Colors.white),
-                      child: Text(o.title, maxLines: 1, overflow: TextOverflow.ellipsis)))),
-            ]));
+                      child: Text(o.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    ),
+                  ),
+              ],
+            ),
+    );
+  }
 }
 
 /* ======== 🖼️ معرض البوسترات (31) ======== */
