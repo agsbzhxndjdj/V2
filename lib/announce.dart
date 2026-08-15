@@ -5,7 +5,7 @@ import 'auth.dart';
 import 'lang.dart';
 
 class Announce {
-  static const String adminEmail = 'YOUR_EMAIL@gmail.com';
+  static const String adminEmail = 'blalnwaf0@gmail.ocm';
   static bool get isAdmin => (Auth.user?.email ?? '') == adminEmail;
 
   static Future<List<Map<String, dynamic>>> all() async {
