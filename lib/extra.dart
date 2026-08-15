@@ -6,6 +6,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:path_provider/path_provider.dart';
 import 'core.dart';
 import 'lang.dart';
+import 'auth.dart';
 
 /* ======== صفحة الإعدادات ======== */
 class SettingsPage extends StatelessWidget {
@@ -35,6 +36,7 @@ class SettingsPage extends StatelessWidget {
       builder: (_, __, ___) => Scaffold(
             appBar: AppBar(title: Text(Lang.t('settings'))),
             body: ListView(children: [
+              /* ---- اللغة ---- */
               _header(Lang.t('language')),
               Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -57,6 +59,7 @@ class SettingsPage extends StatelessWidget {
                               Lang.set('en');
                             })),
                   ])),
+              /* ---- الثيم ---- */
               _header(Lang.t('appearance')),
               SizedBox(
                   height: 52,
@@ -82,11 +85,13 @@ class SettingsPage extends StatelessWidget {
                                           color: Colors.white, size: 20)
                                       : null)))
                           .toList())),
+              /* ---- العرض ---- */
               _header(Lang.t('viewMode')),
               _sw(Lang.t('list'), null, Store.getBool('listView'),
                   (v) => Store.setPref('listView', v)),
               _sw(Lang.t('hideWatched'), null, Store.getBool('hideWatched'),
                   (v) => Store.setPref('hideWatched', v)),
+              /* ---- المشاهدة ---- */
               _header(Lang.t('movies')),
               _sw(Lang.t('incognito'), Lang.t('incognitoHint'),
                   Store.getBool('incognito'),
@@ -94,10 +99,42 @@ class SettingsPage extends StatelessWidget {
               _sw(Lang.t('kidsMode'), Lang.t('kidsModeHint'),
                   Store.getBool('kidsMode'),
                   (v) => Store.setPref('kidsMode', v)),
+              /* ---- الأوضاع الذكية ✨ ---- */
+              _header('الأوضاع الذكية ⚙️'),
+              _sw('ثيم تلقائي ليلي 🌙', null, Store.getBool('autoTheme'),
+                  (v) => Store.setPref('autoTheme', v)),
+              _sw('تحميل ذكي على Wi-Fi 📥', Lang.t('wifiNeeded'),
+                  Store.getBool('smartDl'),
+                  (v) => Store.setPref('smartDl', v)),
+              _sw('توفير البيانات 📶', null, Store.getBool('dataSaver'),
+                  (v) => Store.setPref('dataSaver', v)),
+              _sw('وضع البطارية 🔋', null, Store.getBool('battery'),
+                  (v) => Store.setPref('battery', v)),
+              /* ---- الحساب 👤 ---- */
+              _header('الحساب 👤'),
+              ListTile(
+                  leading: const CircleAvatar(child: Icon(Icons.person)),
+                  title: Text(Auth.isGuest ? 'ضيف' : Auth.displayName,
+                      style: const TextStyle(fontSize: 14)),
+                  subtitle: Text(
+                      Auth.isGuest
+                          ? 'غير مسجل — بياناتك على هذا الجهاز فقط'
+                          : (Auth.user?.email ?? ''),
+                      style: const TextStyle(fontSize: 11)),
+                  trailing: Auth.isGuest
+                      ? null
+                      : TextButton(
+                          onPressed: () async {
+                            await Auth.logout();
+                          },
+                          child: const Text('تسجيل خروج',
+                              style: TextStyle(color: Colors.red)))),
+              /* ---- التحميل ---- */
               _header(Lang.t('downloads')),
               _sw(Lang.t('wifiOnly'), Lang.t('wifiNeeded'),
                   Store.getBool('wifiOnly'),
                   (v) => Store.setPref('wifiOnly', v)),
+              /* ---- الإحصائيات ---- */
               _header(Lang.t('stats')),
               ListTile(
                   leading: const CircleAvatar(
@@ -106,6 +143,7 @@ class SettingsPage extends StatelessWidget {
                       style: const TextStyle(fontSize: 14)),
                   onTap: () => Navigator.push(context,
                       MaterialPageRoute(builder: (_) => const StatsPage()))),
+              /* ---- النسخ الاحتياطي ---- */
               _header(Lang.t('backup')),
               ListTile(
                   leading: const CircleAvatar(
@@ -187,6 +225,8 @@ class StatsPage extends StatelessWidget {
       {'icon': '❤️', 'on': favs >= 5, 't': '5 مفضلة / 5 favorites'},
       {'icon': '⭐', 'on': rts >= 1, 't': 'أول تقييم / First rating'},
       {'icon': '📥', 'on': dls >= 1, 't': 'أول تحميل / First download'},
+      {'icon': '🔥', 'on': Store.bestStreak >= 3, 't': 'ستريك 3 أيام / 3-day streak'},
+      {'icon': '🏆', 'on': Store.bestStreak >= 7, 't': 'أسبوع كامل / Full week'},
     ];
     return Scaffold(
         appBar: AppBar(title: Text(Lang.t('stats'))),
@@ -195,6 +235,12 @@ class StatsPage extends StatelessWidget {
             _statCard(hours, Lang.t('hoursWatched')),
             const SizedBox(width: 10),
             _statCard('$count', Lang.t('moviesWatched')),
+          ]),
+          const SizedBox(height: 10),
+          Row(children: [
+            _statCard('🔥 ${Store.streak}', 'ستريك حالي'),
+            const SizedBox(width: 10),
+            _statCard('🏅 ${Store.bestStreak}', 'أفضل ستريك'),
           ]),
           const SizedBox(height: 20),
           Text(Lang.t('achievements'),
@@ -276,31 +322,23 @@ void newPlaylistDialog(BuildContext context) {
           ]));
 }
 
-/* ✨ تم إصلاح مشكلة السطر 301 هنا */
 void showPlaylistDialog(BuildContext context, Movie m) {
   showDialog(
       context: context,
       builder: (_) => ValueListenableBuilder<int>(
           valueListenable: Store.tick,
           builder: (_, __, ___) {
-            // ✨ تحويل صريح إلى Map<String, dynamic> قبل الاستخدام
-            final rawPls = Store.playlists();
-            final Map<String, dynamic> pls = rawPls is Map
-                ? rawPls.map((k, v) => MapEntry(k.toString(), v))
-                : <String, dynamic>{};
-            
-            final keys = pls.keys.toList();
-            
+            final names = Store.playlists().keys.toList();
             return AlertDialog(
                 backgroundColor: const Color(0xFF151B23),
                 title: Text(Lang.t('playlists')),
                 content: SizedBox(
                     width: double.maxFinite,
-                    child: keys.isEmpty
+                    child: names.isEmpty
                         ? Text(Lang.t('newPlaylist'))
                         : ListView(
                             shrinkWrap: true,
-                            children: keys.map((String n) {
+                            children: names.map((n) {
                               final inside = Store.playlistMovies(n)
                                   .any((e) => e.id == m.id);
                               return ListTile(
