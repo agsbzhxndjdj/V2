@@ -1,7 +1,9 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'core.dart';
+import 'lang.dart';
 
 class Auth {
   static final FirebaseAuth _fa = FirebaseAuth.instance;
@@ -78,14 +80,14 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) => Scaffold(
       backgroundColor: const Color(0xFF0B0F14),
       body: Center(child: SingleChildScrollView(padding: const EdgeInsets.all(28), child: Column(mainAxisSize: MainAxisSize.min, children: [
-        ClipRRect(borderRadius: BorderRadius.circular(24), child: Image.asset('assets/iconic.png', width: 96, height: 96)),
+        Icon(Icons.movie_filter, size: 96, color: AppTheme.accent),
         const SizedBox(height: 14),
         Text('تلي سينما', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: AppTheme.accent)),
         const SizedBox(height: 6),
         const Text('ادخل كضيف أو سجّل لحفظ بياناتك', style: TextStyle(color: Colors.grey, fontSize: 12)),
         const SizedBox(height: 26),
         FilledButton.icon(
-            onPressed: _busy ? null : () async { await Auth.chooseGuest(); Navigator.pushReplacementNamed(context, '/home'); },
+            onPressed: _busy ? null : () async { await Auth.chooseGuest(); Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginGate())); },
             icon: const Icon(Icons.person_outline), label: const Text('دخول كضيف'),
             style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52), backgroundColor: AppTheme.accent, foregroundColor: Colors.black, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)))),
         const SizedBox(height: 10),
@@ -116,4 +118,18 @@ class _LoginScreenState extends State<LoginScreen> {
             child: const Text('تسجيل الحساب')),
         if (_busy) const Padding(padding: EdgeInsets.only(top: 16), child: CircularProgressIndicator()),
       ]))));
+}
+
+/* ======== بوابة الدخول (تتحقق بعد تسجيل الدخول) ======== */
+class LoginGate extends StatelessWidget {
+  const LoginGate({super.key});
+  @override
+  Widget build(BuildContext context) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (context.mounted) {
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginGate()));
+      }
+    });
+    return const Scaffold(body: Center(child: CircularProgressIndicator()));
+  }
 }
