@@ -19,8 +19,6 @@ dependencies:
   connectivity_plus: ^6.1.0
   chewie: ^1.7.4
   firebase_core: ^2.24.2
-  firebase_auth: ^4.15.3
-  google_sign_in: ^6.2.1
   cloud_firestore: ^4.13.6
   flutter_inappwebview: ^6.1.5
   flutter_local_notifications: ^17.2.4
