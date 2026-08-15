@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'dart:async';
 import 'dart:math';
-import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -12,6 +11,7 @@ import 'core.dart';
 import 'lang.dart';
 import 'extra.dart';
 import 'features.dart';
+import 'features2.dart';
 import 'announce.dart';
 
 String _fmt(Duration d) {
@@ -143,7 +143,11 @@ class _HomePageState extends State<HomePage> {
     }
     if (_fq.isNotEmpty) src = src.where((m) => m.quality == _fq).toList();
     if (_fg.isNotEmpty) src = src.where((m) => m.genres.contains(_fg)).toList();
-    return Sorter.apply(Search.run(Filters.apply(src), _search.text), Store.sortMode);
+    src = src.where((m) => !Vault.hidden(m)).toList();
+    src = Parts.group(src, on: Store.getBool('groupParts', true));
+    final s = Sorter.apply(Search.run(Filters.apply(src), _search.text), Store.sortMode);
+    final pins = Store.pinned();
+    return [...s.where((m) => pins.contains(m.id)), ...s.where((m) => !pins.contains(m.id))];
   }
 
   void _random() {
@@ -178,7 +182,7 @@ class _HomePageState extends State<HomePage> {
           onSelected: (v) async { await Store.setSortMode(v); setState(() {}); },
           itemBuilder: (_) => [
             _sortItem('default', 'الأحدث أولاً'),
-            _sortItem('az', 'أبجدي'),
+            _sortItem('az', 'أبجدي (ذكي)'),
             _sortItem('year_desc', 'السنة: الأحدث'),
             _sortItem('year_asc', 'السنة: الأقدم'),
             _sortItem('size_desc', 'الحجم: الأكبر'),
@@ -202,32 +206,36 @@ class _HomePageState extends State<HomePage> {
                               }),
                           filled: true, fillColor: const Color(0xFF151B23), border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none)))))
           : null),
-      body: RefreshIndicator(onRefresh: _refresh,
-        child: ValueListenableBuilder<String>(valueListenable: BulkLoader.status,
-          builder: (_, status, __) => Column(children: [
-            if (status.isNotEmpty)
-              Container(width: double.infinity, color: AppTheme.accent.withOpacity(0.15),
-                  padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
-                  child: Row(children: [
-                    SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.accent)),
-                    const SizedBox(width: 8),
-                    Expanded(child: Text(status, style: TextStyle(fontSize: 11, color: AppTheme.accent))),
-                  ])),
-            Expanded(child: ListView(controller: _scroll, children: [
-              if (today != null) _banner(today),
-              if (cont.isNotEmpty) _row(Lang.t('continueWatching'), cont),
-              if (_popular.isNotEmpty) _row(Lang.t('mostWatched'), _popular),
-              if (_reco.isNotEmpty) _row(Lang.t('recommended'), _reco),
-              _chips(genres.toList()),
-              movies.isEmpty
-                  ? SizedBox(height: 200, child: Center(child: Text(Lang.t('noMovies'), style: const TextStyle(color: Colors.grey))))
-                  : listView
-                      ? Column(children: movies.map((m) => MovieRowItem(m: m)).toList())
-                      : GridView.builder(shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), padding: const EdgeInsets.all(8),
-                          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, childAspectRatio: 0.55),
-                          itemCount: movies.length, itemBuilder: (_, i) => MovieCard(m: movies[i])),
-            ])),
-          ]))),
+      body: Stack(children: [
+        if (Store.getBool('liveWall'))
+          Positioned.fill(child: Opacity(opacity: 0.10, child: liveWallBg())),
+        RefreshIndicator(onRefresh: _refresh,
+          child: ValueListenableBuilder<String>(valueListenable: BulkLoader.status,
+            builder: (_, status, __) => Column(children: [
+              if (status.isNotEmpty)
+                Container(width: double.infinity, color: AppTheme.accent.withOpacity(0.15),
+                    padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
+                    child: Row(children: [
+                      SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.accent)),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(status, style: TextStyle(fontSize: 11, color: AppTheme.accent))),
+                    ])),
+              Expanded(child: ListView(controller: _scroll, children: [
+                if (today != null) _banner(today),
+                if (cont.isNotEmpty) _row(Lang.t('continueWatching'), cont),
+                if (_popular.isNotEmpty) _row(Lang.t('mostWatched'), _popular),
+                if (_reco.isNotEmpty) _row(Lang.t('recommended'), _reco),
+                _chips(genres.toList()),
+                movies.isEmpty
+                    ? SizedBox(height: 200, child: Center(child: Text(Lang.t('noMovies'), style: const TextStyle(color: Colors.grey))))
+                    : listView
+                        ? Column(children: movies.map((m) => MovieRowItem(m: m)).toList())
+                        : GridView.builder(shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), padding: const EdgeInsets.all(8),
+                            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, childAspectRatio: 0.55),
+                            itemCount: movies.length, itemBuilder: (_, i) => MovieCard(m: movies[i])),
+              ])),
+            ]))),
+      ]),
     );
   }
 
@@ -283,7 +291,9 @@ class MovieCard extends StatelessWidget {
       child: InkWell(onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => MovieDetailsScreen(m: m))),
           child: Stack(fit: StackFit.expand, children: [
             m.poster.isNotEmpty
-                ? Hero(tag: 'poster_${m.id}', child: CachedNetworkImage(imageUrl: m.poster, fit: BoxFit.cover, placeholder: (_, __) => _ph(), errorWidget: (_, __, ___) => _ph()))
+                ? (Store.getBool('heroFx', true)
+                    ? Hero(tag: 'poster_${m.id}', child: CachedNetworkImage(imageUrl: m.poster, fit: BoxFit.cover, placeholder: (_, __) => _ph(), errorWidget: (_, __, ___) => _ph()))
+                    : CachedNetworkImage(imageUrl: m.poster, fit: BoxFit.cover, placeholder: (_, __) => _ph(), errorWidget: (_, __, ___) => _ph()))
                 : _ph(),
             Positioned(left: 0, right: 0, bottom: 0,
                 child: Container(padding: const EdgeInsets.fromLTRB(6, 14, 6, 6),
@@ -293,11 +303,13 @@ class MovieCard extends StatelessWidget {
               Positioned(top: 6, right: 6, child: Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(color: AppTheme.accent, borderRadius: BorderRadius.circular(6)),
                   child: Text(m.quality, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.black)))),
+            if (Store.isPinned(m.id))
+              Positioned(top: 6, left: 6, child: Icon(Icons.push_pin, size: 16, color: AppTheme.accent)),
             if (m.duration.isNotEmpty)
               Positioned(bottom: 30, left: 6, child: Text(m.duration, style: const TextStyle(fontSize: 9, color: Colors.white70))),
             if (_inProgress(m))
               Positioned(left: 6, right: 6, bottom: 0, child: LinearProgressIndicator(value: Store.getPosition(m.id) / max(1, _durSec(m.duration)), minHeight: 3, valueColor: AlwaysStoppedAnimation(AppTheme.accent), backgroundColor: Colors.black54)),
-            Positioned(top: 4, left: 4, child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Positioned(top: 24, left: 4, child: Row(mainAxisSize: MainAxisSize.min, children: [
               ValueListenableBuilder<int>(valueListenable: Store.tick, builder: (_, __, ___) => IconButton(
                   icon: Icon(Store.isFav(m.id) ? Icons.favorite : Icons.favorite_border, size: 20, color: Store.isFav(m.id) ? Colors.red : Colors.white70),
                   onPressed: () => Store.toggleFav(m))),
@@ -326,7 +338,7 @@ class MovieRowItem extends StatelessWidget {
           onPressed: () => Store.toggleFav(m))));
 }
 
-/* ======== شاشة التفاصيل + TMDB ======== */
+/* ======== شاشة التفاصيل ======== */
 class MovieDetailsScreen extends StatefulWidget {
   final Movie m;
   const MovieDetailsScreen({super.key, required this.m});
@@ -336,11 +348,25 @@ class MovieDetailsScreen extends StatefulWidget {
 
 class _MovieDetailsScreenState extends State<MovieDetailsScreen> {
   Map<String, dynamic>? _tmdb;
+  List<Map<String, dynamic>> _cast = [];
+  List<String> _facts = [];
+
   @override
   void initState() {
     super.initState();
-    Tmdb.search(widget.m.title, description: widget.m.description).then((v) {
-      if (mounted && v != null) setState(() => _tmdb = v);
+    Tmdb.search(widget.m.title, description: widget.m.description).then((v) async {
+      if (!mounted || v == null) return;
+      setState(() => _tmdb = v);
+      final id = v['id'];
+      if (id is int) {
+        final d = await TmdbX.details(id);
+        if (mounted && d != null) {
+          setState(() {
+            _cast = TmdbX.castOf(d);
+            _facts = TmdbX.factsOf(d, widget.m);
+          });
+        }
+      }
     });
   }
 
@@ -361,13 +387,12 @@ class _MovieDetailsScreenState extends State<MovieDetailsScreen> {
             GestureDetector(
                 onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PosterScreen(m: m))),
                 child: Stack(fit: StackFit.expand, children: [
-                  Hero(tag: 'poster_${m.id}',
-                      child: CachedNetworkImage(imageUrl: bg, fit: BoxFit.cover, errorWidget: (_, __, ___) => const SizedBox())),
-                  Container(decoration: BoxDecoration(gradient: LinearGradient(
-                      begin: Alignment.topCenter, end: Alignment.bottomCenter,
+                  Store.getBool('heroFx', true)
+                      ? Hero(tag: 'poster_${m.id}', child: CachedNetworkImage(imageUrl: bg, fit: BoxFit.cover, errorWidget: (_, __, ___) => const SizedBox()))
+                      : CachedNetworkImage(imageUrl: bg, fit: BoxFit.cover, errorWidget: (_, __, ___) => const SizedBox()),
+                  Container(decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter,
                       colors: [Colors.black.withOpacity(0.3), Colors.black.withOpacity(0.5), const Color(0xFF0B0F14)]))),
                 ])),
-          Container(decoration: const BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Colors.black87, Colors.transparent, Color(0xFF0B0F14)]))),
           SafeArea(child: Column(children: [
             Row(children: [
               IconButton(icon: const Icon(Icons.arrow_back, color: Colors.white), onPressed: () => Navigator.pop(context)),
@@ -394,6 +419,10 @@ class _MovieDetailsScreenState extends State<MovieDetailsScreen> {
                         IconButton(icon: const Icon(Icons.comment_outlined, color: Colors.white70), onPressed: () => CommentsSheet.show(context, m)),
                         IconButton(icon: const Icon(Icons.music_note_outlined, color: Colors.white70), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => TrailerScreen(query: '${m.title} OST soundtrack')))),
                         IconButton(icon: const Icon(Icons.share_outlined, color: Colors.white70), onPressed: () => ShareCard.show(context, m)),
+                        IconButton(icon: Icon(Store.isPinned(m.id) ? Icons.push_pin : Icons.push_pin_outlined, color: Store.isPinned(m.id) ? AppTheme.accent : Colors.white70), onPressed: () => Store.togglePin(m.id)),
+                        IconButton(icon: const Icon(Icons.local_fire_department_outlined, color: Colors.white70), onPressed: () => Marathon.dialog(context, m)),
+                        IconButton(icon: const Icon(Icons.visibility_off_outlined, color: Colors.white70), onPressed: () => Vault.quickHide(context, m)),
+                        IconButton(icon: const Icon(Icons.cast_outlined, color: Colors.white70), onPressed: () => CastTv.open(context, m)),
                       ])),
                   Wrap(spacing: 8, runSpacing: 6, children: [
                     if (vote != '0' && vote != '0.0') _chip('⭐ $vote'),
@@ -407,6 +436,22 @@ class _MovieDetailsScreenState extends State<MovieDetailsScreen> {
                     const SizedBox(height: 12),
                     ConstrainedBox(constraints: const BoxConstraints(maxHeight: 120),
                         child: SingleChildScrollView(child: Text(ov, style: TextStyle(color: Colors.grey.shade300, fontSize: 13, height: 1.6)))),
+                  ],
+                  if (_facts.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Wrap(spacing: 6, runSpacing: 6, children: _facts.map((f) => _chip('💡 $f')).toList()),
+                  ],
+                  if (_cast.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    SizedBox(height: 84, child: ListView(scrollDirection: Axis.horizontal, children: _cast.map((c) => Padding(padding: const EdgeInsets.symmetric(horizontal: 4), child: Column(children: [
+                      CircleAvatar(child: Text((c['name'] ?? '؟').toString().split(' ').where((e) => e.isNotEmpty).map((e) => e[0]).take(2).join())),
+                      const SizedBox(height: 4),
+                      SizedBox(width: 70, child: Text((c['name'] ?? '').toString(), maxLines: 2, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: const TextStyle(fontSize: 9))),
+                    ]))).toList())),
+                  ],
+                  if (Parts.partsOf(m).isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Wrap(spacing: 6, children: Parts.partsOf(m).map((p) => ActionChip(label: Text(p.title, style: const TextStyle(fontSize: 10)), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => MovieDetailsScreen(m: p))))).toList()),
                   ],
                   const SizedBox(height: 16),
                   Row(children: [
