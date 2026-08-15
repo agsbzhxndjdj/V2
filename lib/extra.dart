@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
@@ -237,33 +238,35 @@ class SettingsPage extends StatelessWidget {
     }
   }
 
-  void _importDialog(BuildContext context) {
-    final ctrl = TextEditingController();
-    showDialog(
-        context: context,
-        builder: (_) => AlertDialog(
-            backgroundColor: const Color(0xFF151B23),
-            title: Text(Lang.t('importData')),
-            content: TextField(
-                controller: ctrl,
-                maxLines: 6,
-                decoration:
-                    const InputDecoration(hintText: 'Paste backup JSON…')),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: Text(Lang.t('close'))),
-              FilledButton(
-                  onPressed: () async {
-                    try {
-                      final m = Map<String, dynamic>.from(
-                          jsonDecode(ctrl.text));
-                      await Store.importAll(m);
-                      if (context.mounted) Navigator.pop(context);
-                    } catch (_) {}
-                  },
-                  child: Text(Lang.t('importData'))),
-            ]));
+  /* 📥 استيراد من مدير الملفات */
+  Future _importDialog(BuildContext context) async {
+    try {
+      final res = await FilePicker.platform.pickFiles(
+          type: FileType.custom,
+          allowedExtensions: ['json', 'txt'],
+          withData: true);
+      if (res == null || res.files.isEmpty) return;
+      final f = res.files.first;
+
+      String text = '';
+      if (f.bytes != null) {
+        text = utf8.decode(f.bytes!);
+      } else if (f.path != null) {
+        text = await File(f.path!).readAsString();
+      }
+
+      final m = Map<String, dynamic>.from(jsonDecode(text));
+      await Store.importAll(m);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('${Lang.t('importData')} ✅')));
+      }
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('فشل الاستيراد — ملف غير صالح')));
+      }
+    }
   }
 }
 
