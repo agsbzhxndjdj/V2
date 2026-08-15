@@ -28,6 +28,54 @@ jobs:
       - name: Generate android folder
         run: flutter create . --platforms android --no-overwrite
 
+      - name: Inject keystore
+        run: |
+          if [ -f KEYSTORE_B64 ]; then base64 -d -i KEYSTORE_B64 > android/app/telecinema.keystore; echo "keystore decoded OK"; fi
+          if [ -f telecinema.keystore ]; then cp telecinema.keystore android/app/telecinema.keystore; echo "keystore copied OK"; fi
+          ls -la android/app/google-services.json android/app/telecinema.keystore
+
+      - name: Patch gradle (google-services + signing)
+        run: |
+          python3 - << 'PYEOF'
+          # إضافة google-services في settings.gradle (فلاتر 3.24)
+          p = 'android/settings.gradle'
+          s = open(p).read()
+          if 'google-services' not in s:
+              s = s.replace('id "org.jetbrains.kotlin.android"', 'id "org.jetbrains.kotlin.android"\n    id "com.google.gms.google-services" version "4.4.0" apply false', 1)
+              open(p, 'w').write(s)
+              print('settings.gradle patched')
+
+          # احتياط: إذا كان المشروع يستخدم build.gradle القديم
+          p = 'android/build.gradle'
+          s = open(p).read()
+          if 'google-services' not in s:
+              if 'plugins {' in s:
+                  s = s.replace('id "org.jetbrains.kotlin.android"', 'id "org.jetbrains.kotlin.android"\n    id "com.google.gms.google-services" version "4.4.0" apply false', 1)
+              elif 'dependencies {' in s:
+                  s = s.replace('dependencies {', 'dependencies {\n        classpath "com.google.gms:google-services:4.4.0"', 1)
+              open(p, 'w').write(s)
+
+          # توقيع النسخة + تفعيل google-services في التطبيق
+          p = 'android/app/build.gradle'
+          s = open(p).read()
+          if 'com.google.gms.google-services' not in s:
+              s = s.replace('id "dev.flutter.flutter-gradle-plugin"', 'id "dev.flutter.flutter-gradle-plugin"\n    id "com.google.gms.google-services"', 1)
+          sig = """    signingConfigs {
+              release {
+                  storeFile file('telecinema.keystore')
+                  storePassword '12345678'
+                  keyAlias 'telecinema'
+                  keyPassword '12345678'
+              }
+          }
+          """
+          if 'signingConfigs' not in s:
+              s = s.replace('    buildTypes {', sig + '\n    buildTypes {', 1)
+          s = s.replace('signingConfig signingConfigs.debug', 'signingConfig signingConfigs.release')
+          open(p, 'w').write(s)
+          print('GRADLE PATCHED')
+          PYEOF
+
       - name: Patch AndroidManifest (HTTP + الاسم + Android TV + الإشعارات)
         run: |
           sed -i 's|<application|<uses-feature android:name="android.software.leanback" android:required="false" />\n    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />\n    <application|' android/app/src/main/AndroidManifest.xml
