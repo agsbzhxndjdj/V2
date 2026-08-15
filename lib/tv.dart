@@ -330,7 +330,6 @@ class _TvPlayerState extends State<TvPlayer> {
     _poke();
   }
 
-  // ✅ إضافة: مفتاح القائمة لفتح محدد الجودة (للريموت)
   void _handleMenuKey() {
     if (widget.movie.alts.isNotEmpty) {
       _showQualitySelector();
@@ -354,7 +353,6 @@ class _TvPlayerState extends State<TvPlayer> {
     if (k == LogicalKeyboardKey.arrowLeft) { _seek(-10); return KeyEventResult.handled; }
     if (k == LogicalKeyboardKey.arrowUp) { _vol(0.1); return KeyEventResult.handled; }
     if (k == LogicalKeyboardKey.arrowDown) { _vol(-0.1); return KeyEventResult.handled; }
-    // ✅ إضافة: مفتاح M أو مفتاح القائمة لفتح محدد الجودة
     if (k == LogicalKeyboardKey.keyM || k == LogicalKeyboardKey.contextMenu) {
       _handleMenuKey();
       return KeyEventResult.handled;
@@ -362,7 +360,6 @@ class _TvPlayerState extends State<TvPlayer> {
     return KeyEventResult.ignored;
   }
 
-  // ✅ إضافة: عرض محدد الجودة
   void _showQualitySelector() {
     showModalBottomSheet(
       context: context,
@@ -392,7 +389,6 @@ class _TvPlayerState extends State<TvPlayer> {
             ),
             const SizedBox(height: 20),
             
-            // الجودة الحالية
             Container(
               decoration: BoxDecoration(
                 color: AppTheme.accent.withOpacity(0.1),
@@ -419,7 +415,6 @@ class _TvPlayerState extends State<TvPlayer> {
             
             const SizedBox(height: 12),
             
-            // الجودات البديلة
             if (widget.movie.alts.isNotEmpty) ...[
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -470,14 +465,11 @@ class _TvPlayerState extends State<TvPlayer> {
     );
   }
 
-  // ✅ إضافة: تغيير الجودة مع الحفاظ على موضع المشاهدة
   Future<void> _switchQuality(String newUrl, String newQuality) async {
     if (newUrl == _currentUrl) return;
     
-    // حفظ الموضع الحالي
     final oldPos = _c?.value.position ?? Duration.zero;
     
-    // إيقاف المشغل القديم
     await _c?.pause();
     _c?.dispose();
     
@@ -488,15 +480,12 @@ class _TvPlayerState extends State<TvPlayer> {
       _currentQuality = newQuality;
     });
     
-    // حفظ الموضع للـ Movie الحالي
     if (oldPos.inSeconds > 10) {
       await Store.savePosition(widget.movie.id, oldPos.inSeconds);
     }
     
-    // بدء مشغل جديد بالجودة الجديدة
     await _init(url: newUrl);
     
-    // الرجوع للموضع السابق
     final c = _c;
     if (c != null && c.value.isInitialized && oldPos.inSeconds > 0) {
       await c.seekTo(oldPos);
@@ -536,7 +525,6 @@ class _TvPlayerState extends State<TvPlayer> {
                         padding: const EdgeInsets.all(16),
                         decoration: const BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Colors.black87, Colors.transparent])),
                         child: Row(children: [
-                          // زر الرجوع
                           IconButton(
                             icon: const Icon(Icons.arrow_back, color: Colors.white, size: 28),
                             onPressed: () => Navigator.pop(context),
@@ -555,10 +543,9 @@ class _TvPlayerState extends State<TvPlayer> {
                               padding: const EdgeInsets.only(right: 8),
                               child: Icon(c.value.isPlaying ? Icons.play_arrow : Icons.pause, color: AppTheme.accent, size: 28),
                             ),
-                          // ✅ زر تغيير الجودة - يظهر فقط إذا كان هناك جودات بديلة
                           if (widget.movie.alts.isNotEmpty)
                             IconButton(
-                              icon: const Icon(Icons.settings, color: AppTheme.accent, size: 28),
+                              icon: Icon(Icons.settings, color: AppTheme.accent, size: 28),
                               onPressed: _showQualitySelector,
                               tooltip: 'تغيير الجودة',
                             ),
@@ -581,7 +568,7 @@ class _TvPlayerState extends State<TvPlayer> {
                             children: [
                               const Text('OK تشغيل/إيقاف • يمين/يسار تقديم • أعلى/أسفل الصوت', style: TextStyle(fontSize: 12, color: Colors.white54)),
                               if (widget.movie.alts.isNotEmpty)
-                                const Text(' • M تغيير الجودة', style: TextStyle(fontSize: 12, color: AppTheme.accent)),
+                                Text(' • M تغيير الجودة', style: TextStyle(fontSize: 12, color: AppTheme.accent)),
                             ],
                           ),
                         ]))),
