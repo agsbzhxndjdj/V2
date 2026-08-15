@@ -2,9 +2,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'core.dart';
 import 'auth.dart';
+import 'lang.dart';
 
 class Announce {
-  // ⚠️ ضع إيميلك هنا (حساب الأدمن اللي يرسل المنشورات)
   static const String adminEmail = 'YOUR_EMAIL@gmail.com';
   static bool get isAdmin => (Auth.user?.email ?? '') == adminEmail;
 
