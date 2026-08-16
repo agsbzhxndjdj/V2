@@ -436,7 +436,7 @@ class _MovieDetailsScreenState extends State<MovieDetailsScreen> {
               IconButton(icon: const Icon(Icons.arrow_back, color: Colors.white), onPressed: () => Navigator.pop(context)),
               Expanded(child: Text(m.title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis)),
               if (m.qualityOptions.length > 1)
-                IconButton(icon: const Icon(Icons.hd, color: AppTheme.accent), onPressed: _qualityMenu),
+                IconButton(icon: Icon(Icons.hd, color: AppTheme.accent), onPressed: _qualityMenu),
               IconButton(icon: const Icon(Icons.ondemand_video, color: Colors.redAccent), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => TrailerScreen(query: m.title)))),
               ValueListenableBuilder<int>(valueListenable: Store.tick, builder: (_, __, ___) => IconButton(
                   icon: Icon(Store.isLater(m.id) ? Icons.bookmark : Icons.bookmark_border, color: Store.isLater(m.id) ? AppTheme.accent : Colors.white70),
