@@ -30,7 +30,7 @@ Future<void> main() async {
   // ربط المزامنة بالإشعارات
   Sync.onNewMovies = (n, t) => Notify.newMovies(n, t);
 
-  // ✅ التحسين: بدء المزامنة بشكل ذكي (مرة كل 24 ساعة)
+  // ✅ التحسين: بدء المزامنة بشكل ذكي
   _startSmartSync();
 
   // إعداد اللغة
@@ -43,16 +43,12 @@ Future<void> main() async {
 /* ======== المزامنة الذكية ======== */
 
 void _startSmartSync() {
-  // ✅ التحقق من آخر تحديث
-  if (Store.shouldSync()) {
-    // مر أكثر من 24 ساعة، ابدأ المزامنة بعد 5 ثواني
-    // (لإعطاء التطبيق وقت للتحميل الأولي)
-    Timer(const Duration(seconds: 5), () {
-      Sync.syncNow();
-    });
-  }
-  
-  // ✅ بدء Timer الدوري للتحديث كل 24 ساعة (لا يشتغل إلا إذا مر 24 ساعة)
+  // ابدأ المزامنة بعد 5 ثواني (لإعطاء التطبيق وقت للتحميل الأولي)
+  Timer(const Duration(seconds: 5), () {
+    Sync.checkAll();
+  });
+
+  // Timer دوري للتحديث (كل ساعتين داخل Sync.start)
   Sync.start();
 }
 
@@ -88,9 +84,7 @@ class _RootState extends State<Root> with WidgetsBindingObserver {
 
     // ✅ عند العودة للتطبيق من الخلفية، تحقق من المزامنة
     if (state == AppLifecycleState.resumed) {
-      if (Store.shouldSync()) {
-        Sync.syncNow();
-      }
+      Sync.checkAll();
     }
   }
 
@@ -119,7 +113,8 @@ class _RootState extends State<Root> with WidgetsBindingObserver {
               surface: const Color(0xFF151B23),
             ),
           ),
-          home: _isTvMode ? const TvHome() : const MainShell(),
+          // ✅ الواجهة القديمة بخمسة تبويبات بدل الثلاثة
+          home: _isTvMode ? const TvHome() : const HomeShell(),
           builder: (context, child) {
             return Directionality(
               textDirection: TextDirection.rtl,
@@ -128,98 +123,6 @@ class _RootState extends State<Root> with WidgetsBindingObserver {
           },
         );
       },
-    );
-  }
-}
-
-/* ======== الهيكل الرئيسي (Bottom Navigation) ======== */
-
-class MainShell extends StatefulWidget {
-  const MainShell({super.key});
-
-  @override
-  State<MainShell> createState() => _MainShellState();
-}
-
-class _MainShellState extends State<MainShell> {
-  @override
-  Widget build(BuildContext context) {
-    return ValueListenableBuilder<int>(
-      valueListenable: App.tab,
-      builder: (_, tab, __) {
-        return Scaffold(
-          body: IndexedStack(
-            index: tab,
-            children: [
-              const HomePage(),
-              const ChannelsPage(),
-              _buildDownloadsOrSettings(),
-            ],
-          ),
-          bottomNavigationBar: _buildBottomNav(tab),
-        );
-      },
-    );
-  }
-
-  Widget _buildDownloadsOrSettings() {
-    // استخدم DownloadsPage إذا كانت موجودة، أو SettingsPage
-    return const DownloadsPage();
-  }
-
-  Widget _buildBottomNav(int currentTab) {
-    return Container(
-      decoration: const BoxDecoration(
-        color: Color(0xFF0B0F14),
-        border: Border(top: BorderSide(color: Color(0xFF1B2430), width: 1)),
-      ),
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _navItem(0, Icons.home_rounded, Lang.t('home')),
-              _navItem(1, Icons.subscriptions_rounded, Lang.t('channels')),
-              _navItem(2, Icons.settings_rounded, Lang.t('settings')),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _navItem(int index, IconData icon, String label) {
-    final isActive = App.tab.value == index;
-    return GestureDetector(
-      onTap: () => App.tab.value = index,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-        decoration: BoxDecoration(
-          color: isActive ? const Color(0xFFFFC107).withOpacity(0.15) : Colors.transparent,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              color: isActive ? const Color(0xFFFFC107) : Colors.grey,
-              size: 26,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 11,
-                color: isActive ? const Color(0xFFFFC107) : Colors.grey,
-                fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
