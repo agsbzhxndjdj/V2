@@ -1,0 +1,174 @@
+// lib/models/site_movie.dart
+
+class SiteMovie {
+  final String id;
+  final String title;
+  final String year;
+  final String site;
+  final String videoUrl;
+  final String poster;
+  final String backdrop;
+  final String overview;
+  final double rating;
+  final String duration;
+  final List<String> genres;
+  final List<VideoQuality> qualities;
+  final List<CastMember> cast;
+  final bool hasSubtitle;
+  final String? subtitleLang;
+  final int? tmdbId;
+  final String? sourceChannel;
+
+  SiteMovie({
+    required this.id,
+    required this.title,
+    required this.year,
+    required this.site,
+    required this.videoUrl,
+    this.poster = '',
+    this.backdrop = '',
+    this.overview = '',
+    this.rating = 0,
+    this.duration = '',
+    this.genres = const [],
+    this.qualities = const [],
+    this.cast = const [],
+    this.hasSubtitle = false,
+    this.subtitleLang,
+    this.tmdbId,
+    this.sourceChannel,
+  });
+
+  bool get isMultiQuality => qualities.length > 1;
+
+  String get qualityLabel {
+    if (qualities.isEmpty) return '';
+    if (isMultiQuality) return 'متعدد الجودات';
+    return qualities.first.label;
+  }
+
+  String get subtitleLabel => hasSubtitle ? 'مترجم' : 'بدون ترجمة';
+
+  String get siteName {
+    switch (site) {
+      case 'plex': return 'Plex';
+      case 'roku': return 'Roku';
+      case 'crackle': return 'Crackle';
+      default: return site;
+    }
+  }
+
+  SiteMovie copyWith({
+    String? poster,
+    String? backdrop,
+    String? overview,
+    double? rating,
+    List<String>? genres,
+    List<CastMember>? cast,
+    bool? hasSubtitle,
+    String? subtitleLang,
+    int? tmdbId,
+  }) {
+    return SiteMovie(
+      id: id,
+      title: title,
+      year: year,
+      site: site,
+      videoUrl: videoUrl,
+      poster: poster ?? this.poster,
+      backdrop: backdrop ?? this.backdrop,
+      overview: overview ?? this.overview,
+      rating: rating ?? this.rating,
+      duration: duration,
+      genres: genres ?? this.genres,
+      qualities: qualities,
+      cast: cast ?? this.cast,
+      hasSubtitle: hasSubtitle ?? this.hasSubtitle,
+      subtitleLang: subtitleLang ?? this.subtitleLang,
+      tmdbId: tmdbId ?? this.tmdbId,
+      sourceChannel: sourceChannel,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'title': title,
+    'year': year,
+    'site': site,
+    'videoUrl': videoUrl,
+    'poster': poster,
+    'backdrop': backdrop,
+    'overview': overview,
+    'rating': rating,
+    'duration': duration,
+    'genres': genres,
+    'qualities': qualities.map((q) => q.toJson()).toList(),
+    'hasSubtitle': hasSubtitle,
+    'subtitleLang': subtitleLang,
+    'tmdbId': tmdbId,
+    'sourceChannel': sourceChannel,
+  };
+
+  factory SiteMovie.fromJson(Map<String, dynamic> json) => SiteMovie(
+    id: json['id'] ?? '',
+    title: json['title'] ?? '',
+    year: json['year'] ?? '',
+    site: json['site'] ?? '',
+    videoUrl: json['videoUrl'] ?? '',
+    poster: json['poster'] ?? '',
+    backdrop: json['backdrop'] ?? '',
+    overview: json['overview'] ?? '',
+    rating: (json['rating'] ?? 0).toDouble(),
+    duration: json['duration'] ?? '',
+    genres: List<String>.from(json['genres'] ?? []),
+    qualities: (json['qualities'] as List? ?? [])
+        .map((q) => VideoQuality.fromJson(q))
+        .toList(),
+    hasSubtitle: json['hasSubtitle'] ?? false,
+    subtitleLang: json['subtitleLang'],
+    tmdbId: json['tmdbId'],
+    sourceChannel: json['sourceChannel'],
+  );
+}
+
+class VideoQuality {
+  final String label;
+  final String url;
+  final int bandwidth;
+
+  VideoQuality({
+    required this.label,
+    required this.url,
+    this.bandwidth = 0,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'label': label,
+    'url': url,
+    'bandwidth': bandwidth,
+  };
+
+  factory VideoQuality.fromJson(Map<String, dynamic> json) => VideoQuality(
+    label: json['label'] ?? '',
+    url: json['url'] ?? '',
+    bandwidth: json['bandwidth'] ?? 0,
+  );
+}
+
+class CastMember {
+  final String name;
+  final String character;
+  final String photo;
+
+  CastMember({
+    required this.name,
+    required this.character,
+    this.photo = '',
+  });
+
+  factory CastMember.fromJson(Map<String, dynamic> json) => CastMember(
+    name: json['name'] ?? '',
+    character: json['character'] ?? '',
+    photo: json['photo'] ?? '',
+  );
+}
