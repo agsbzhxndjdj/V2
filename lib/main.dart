@@ -8,6 +8,7 @@ import 'ui.dart';
 import 'tv.dart';
 import 'lang.dart';
 import 'notify.dart';
+import 'services/sites_manager.dart';
 
 /* ======== نقطة البداية ======== */
 
@@ -27,10 +28,13 @@ Future<void> main() async {
   // تهيئة الإشعارات
   await Notify.init();
 
+  // ✅ تهيئة مدير المواقع (Plex, Roku, Crackle)
+  // لا يحتاج init حقيقي حالياً، لكن نضيفه للتوسع المستقبلي
+
   // ربط المزامنة بالإشعارات
   Sync.onNewMovies = (n, t) => Notify.newMovies(n, t);
 
-  // ✅ التحسين: بدء المزامنة بشكل ذكي
+  // ✅ التحسين: بدء المزامنة بشكل ذكي (مرة كل 24 ساعة)
   _startSmartSync();
 
   // إعداد اللغة
@@ -43,12 +47,16 @@ Future<void> main() async {
 /* ======== المزامنة الذكية ======== */
 
 void _startSmartSync() {
-  // ابدأ المزامنة بعد 5 ثواني (لإعطاء التطبيق وقت للتحميل الأولي)
-  Timer(const Duration(seconds: 5), () {
-    Sync.checkAll();
-  });
-
-  // Timer دوري للتحديث (كل ساعتين داخل Sync.start)
+  // ✅ التحقق من آخر تحديث
+  if (Store.shouldSync()) {
+    // مر أكثر من 24 ساعة، ابدأ المزامنة بعد 5 ثواني
+    // (لإعطاء التطبيق وقت للتحميل الأولي)
+    Timer(const Duration(seconds: 5), () {
+      Sync.syncNow();
+    });
+  }
+  
+  // ✅ بدء Timer الدوري للتحديث كل 24 ساعة (لا يشتغل إلا إذا مر 24 ساعة)
   Sync.start();
 }
 
@@ -84,7 +92,9 @@ class _RootState extends State<Root> with WidgetsBindingObserver {
 
     // ✅ عند العودة للتطبيق من الخلفية، تحقق من المزامنة
     if (state == AppLifecycleState.resumed) {
-      Sync.checkAll();
+      if (Store.shouldSync()) {
+        Sync.syncNow();
+      }
     }
   }
 
@@ -113,7 +123,7 @@ class _RootState extends State<Root> with WidgetsBindingObserver {
               surface: const Color(0xFF151B23),
             ),
           ),
-          // ✅ الواجهة القديمة بخمسة تبويبات بدل الثلاثة
+          // ✅ إذا كان وضع التلفزيون، استخدم TvHome، وإلا HomeShell
           home: _isTvMode ? const TvHome() : const HomeShell(),
           builder: (context, child) {
             return Directionality(
