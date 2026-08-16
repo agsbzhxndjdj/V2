@@ -1,0 +1,131 @@
+// lib/services/tmdb_service.dart
+
+import 'package:dio/dio.dart';
+import '../models/site_movie.dart';
+
+class TmdbService {
+  static const String _apiKey = '9ba4e29354937364c2202857afcd7f94';
+  static const String _baseUrl = 'https://api.themoviedb.org/3';
+  static const String _imageBase = 'https://image.tmdb.org/t/p';
+
+  static final Dio _dio = Dio(BaseOptions(
+    connectTimeout: const Duration(seconds: 10),
+    receiveTimeout: const Duration(seconds: 15),
+  ));
+
+  static Future<SiteMovie?> enrichMovie(SiteMovie movie) async {
+    try {
+      final searchResult = await _searchMovie(movie.title, movie.year);
+      if (searchResult == null) return movie;
+
+      final tmdbId = searchResult['id'] as int;
+      final details = await _getDetails(tmdbId);
+      final cast = await _getCast(tmdbId);
+
+      return movie.copyWith(
+        poster: details['poster'] ?? movie.poster,
+        backdrop: details['backdrop'] ?? movie.backdrop,
+        overview: details['overview'] ?? movie.overview,
+        rating: details['rating'] ?? movie.rating,
+        genres: details['genres'] ?? movie.genres,
+        cast: cast,
+        tmdbId: tmdbId,
+      );
+    } catch (e) {
+      print('TMDB enrichment error: $e');
+      return movie;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> _searchMovie(String title, String year) async {
+    try {
+      final cleanTitle = _cleanTitle(title);
+      
+      final response = await _dio.get('$_baseUrl/search/movie', queryParameters: {
+        'api_key': _apiKey,
+        'query': cleanTitle,
+        'language': 'ar-SA',
+        'include_adult': false,
+        if (year.isNotEmpty) 'year': year,
+      });
+
+      final results = response.data['results'] as List;
+      if (results.isEmpty) {
+        if (year.isNotEmpty) {
+          final retry = await _dio.get('$_baseUrl/search/movie', queryParameters: {
+            'api_key': _apiKey,
+            'query': cleanTitle,
+            'language': 'ar-SA',
+          });
+          final retryResults = retry.data['results'] as List;
+          return retryResults.isEmpty ? null : retryResults[0];
+        }
+        return null;
+      }
+      return results[0];
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>> _getDetails(int tmdbId) async {
+    try {
+      final response = await _dio.get('$_baseUrl/movie/$tmdbId', queryParameters: {
+        'api_key': _apiKey,
+        'language': 'ar-SA',
+      });
+
+      final data = response.data;
+      return {
+        'poster': data['poster_path'] != null 
+            ? '$_imageBase/w500${data['poster_path']}' 
+            : null,
+        'backdrop': data['backdrop_path'] != null 
+            ? '$_imageBase/w1280${data['backdrop_path']}' 
+            : null,
+        'overview': data['overview'] ?? '',
+        'rating': (data['vote_average'] ?? 0).toDouble(),
+        'genres': (data['genres'] as List? ?? [])
+            .map((g) => g['name'] as String)
+            .toList(),
+      };
+    } catch (e) {
+      return {};
+    }
+  }
+
+  static Future<List<CastMember>> _getCast(int tmdbId) async {
+    try {
+      final response = await _dio.get('$_baseUrl/movie/$tmdbId/credits', queryParameters: {
+        'api_key': _apiKey,
+        'language': 'ar-SA',
+      });
+
+      final cast = response.data['cast'] as List;
+      return cast.take(10).map((c) => CastMember(
+        name: c['name'] ?? '',
+        character: c['character'] ?? '',
+        photo: c['profile_path'] != null 
+            ? '$_imageBase/w185${c['profile_path']}' 
+            : '',
+      )).toList();
+    } catch (e) {
+      return [];
+    }
+  }
+
+  static String _cleanTitle(String title) {
+    var t = title.trim();
+    t = t.replaceAll(RegExp(r'\b(19|20)\d{2}\b'), '');
+    t = t.replaceAll(RegExp(
+      r'\b(2160p|1080p|720p|480p|4k|uhd|bluray|web-?dl|hdrip|hdtv|dvdrip)\b',
+      caseSensitive: false,
+    ), '');
+    t = t.replaceAll(RegExp(
+      r'(مترجم|مدبلج|فيلم|جودة|مشاهدة|تحميل|اونلاين)',
+      caseSensitive: false,
+    ), '');
+    t = t.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return t;
+  }
+}
