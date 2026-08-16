@@ -7,7 +7,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:path_provider/path_provider.dart';
 import 'core.dart';
 import 'lang.dart';
-import 'features2.dart';
+import 'features.dart';
 
 /* ======== صفحة الإعدادات ======== */
 class SettingsPage extends StatelessWidget {
@@ -110,7 +110,7 @@ class SettingsPage extends StatelessWidget {
                   (v) => Store.setPref('dataSaver', v)),
               _sw('وضع البطارية 🔋', null, Store.getBool('battery'),
                   (v) => Store.setPref('battery', v)),
-              /* ---- العرض والتنظيم 🆕 ---- */
+              /* ---- العرض والتنظيم ---- */
               _header('العرض والتنظيم'),
               _sw('🔄 تجميع الأجزاء تلقائياً', null,
                   Store.getBool('groupParts', true),
@@ -238,7 +238,6 @@ class SettingsPage extends StatelessWidget {
     }
   }
 
-  /* 📥 استيراد من مدير الملفات */
   Future _importDialog(BuildContext context) async {
     try {
       final res = await FilePicker.platform.pickFiles(
