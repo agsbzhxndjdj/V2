@@ -561,7 +561,7 @@ Widget liveWallBg() {
   return CachedNetworkImage(imageUrl: url, fit: BoxFit.cover, errorWidget: (_, __, ___) => const SizedBox.shrink());
 }
 
-/* ======== فلاتر البحث المتقدم (من features2.dart) ======== */
+/* ======== فلاتر البحث المتقدم ======== */
 class Filters {
   static int yearFrom = 0, yearTo = 0, maxMin = 0;
   static String quality = '';
@@ -598,7 +598,7 @@ class AdvancedFilterDialog extends StatelessWidget {
       backgroundColor: const Color(0xFF151B23),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       title: const Row(children: [Icon(Icons.tune, size: 20), SizedBox(width: 8), Text('تصفية متقدمة', style: TextStyle(fontSize: 15))]),
-      content: SizedBox(width: double.maxMaximum, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+      content: SizedBox(width: double.maxFinite, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
         const Text('سنة الإصدار', style: TextStyle(fontSize: 12, color: Colors.grey)),
         Row(children: [
           Expanded(child: _yearBtn(context, 'من', Filters.yearFrom, (v) => Filters.yearFrom = v)),
