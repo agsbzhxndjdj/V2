@@ -11,7 +11,6 @@ import 'core.dart';
 import 'lang.dart';
 import 'extra.dart';
 import 'features.dart';
-import 'features2.dart';
 import 'announce.dart';
 
 String _fmt(Duration d) {
