@@ -37,10 +37,13 @@ class Channel {
 class Movie {
   final String channel;
   final int msgId;
-  final String title, poster, videoUrl, description, quality, size, duration;
+  final String title, poster, description, size, duration;
   final List<String> genres;
   final int date;
   final List<Map<String, String>> alts;
+  String videoUrl;
+  String quality;
+  List<Map<String, String>> qualities;
   late final String id, hay;
 
   Movie(
@@ -55,8 +58,10 @@ class Movie {
       required this.size,
       required this.duration,
       required this.date,
-      List<Map<String, String>>? alts})
+      List<Map<String, String>>? alts,
+      List<Map<String, String>>? qualities})
       : alts = alts ?? [],
+        qualities = qualities ?? [],
         id = '${channel}_$msgId' {
     hay = Search.norm('$title $description ${genres.join(' ')}');
   }
@@ -74,6 +79,49 @@ class Movie {
     return u == 'GB' ? v * 1024 : (u == 'TB' ? v * 1024 * 1024 : v);
   }
 
+  /* ======== الجودات المتاحة ======== */
+  List<Map<String, String>> get qualityOptions {
+    final out = <Map<String, String>>[];
+    void add(String q, String url, String sz) {
+      if (url.isEmpty) return;
+      if (out.any((e) => e['url'] == url)) return;
+      out.add({'q': (q.isEmpty ? 'جودة أخرى' : q), 'url': url, 'size': sz});
+    }
+    add(quality, videoUrl, size);
+    for (final a in qualities) add(a['q'] ?? '', a['url'] ?? '', a['size'] ?? '');
+    for (final a in alts) add(a['q'] ?? '', a['url'] ?? '', '');
+    return out;
+  }
+
+  void cycleQuality() {
+    final opts = qualityOptions;
+    if (opts.length < 2) return;
+    final i = opts.indexWhere((e) => e['url'] == videoUrl);
+    final n = opts[(i + 1) % opts.length];
+    quality = n['q'] ?? quality;
+    videoUrl = n['url'] ?? videoUrl;
+  }
+
+  void applyQuality(String url) {
+    final o = qualityOptions.firstWhere((e) => e['url'] == url,
+        orElse: () => <String, String>{});
+    if (o.isEmpty) return;
+    quality = o['q'] ?? quality;
+    videoUrl = url;
+  }
+
+  /* دمج نسخة مكررة (نفس الفيلم بجودة أخرى) */
+  void absorb(Movie other) {
+    void add(String q, String url, String sz) {
+      if (url.isEmpty || url == videoUrl) return;
+      if (qualities.any((e) => e['url'] == url)) return;
+      qualities.add({'q': (q.isEmpty ? 'جودة أخرى' : q), 'url': url, 'size': sz});
+    }
+    add(other.quality, other.videoUrl, other.size);
+    for (final a in other.qualities) add(a['q'] ?? '', a['url'] ?? '', a['size'] ?? '');
+    for (final a in other.alts) add(a['q'] ?? '', a['url'] ?? '', '');
+  }
+
   Map<String, dynamic> toJson() => {
         'channel': channel,
         'msgId': msgId,
@@ -87,6 +135,7 @@ class Movie {
         'duration': duration,
         'date': date,
         'alts': alts,
+        'qualities': qualities,
       };
 
   static Movie fromJson(Map m) => Movie(
@@ -102,6 +151,9 @@ class Movie {
       duration: m['duration'] ?? '',
       date: m['date'] ?? 0,
       alts: (m['alts'] as List?)
+          ?.map((e) => Map<String, String>.from(e))
+          .toList(),
+      qualities: (m['qualities'] as List?)
           ?.map((e) => Map<String, String>.from(e))
           .toList());
 }
@@ -374,16 +426,6 @@ class Store {
     tick.value++;
   }
 
-  /* ======== تتبع آخر تحديث ======== */
-  static int get lastSyncTime => (prefs()['lastSync'] as int?) ?? 0;
-  static Future setLastSyncTime(int timestamp) => setPref('lastSync', timestamp);
-  static bool shouldSync() {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final diff = now - lastSyncTime;
-    // تحديث مرة واحدة كل 24 ساعة
-    return diff > (24 * 60 * 60 * 1000);
-  }
-
   /* ---- الحسابات المتعددة 👥 (42) ---- */
   static String _pk(String k) => '${k}_${getString('profile', 'الرئيسي')}';
 
@@ -544,8 +586,8 @@ class Store {
   static Future delPlaylist(String name) async {
     final p = playlists();
     p.remove(name);
-    await _st.put('playlists', p);
     tick.value++;
+    await _st.put('playlists', p);
   }
 
   static List<Movie> playlistMovies(String name) =>
@@ -621,26 +663,8 @@ class Sync {
   static void Function(int count, String channel)? onNewMovies;
 
   static void start() {
-    // ✅ التحسين: Timer دوري كل 24 ساعة بدل ساعتين
-    _timer ??= Timer.periodic(const Duration(hours: 24), (_) {
-      if (Store.shouldSync()) {
-        checkAll();
-      }
-    });
-    
-    // ✅ التحسين: حذف Future.delayed - لا تحديث تلقائي عند فتح التطبيق
-    // Future.delayed(const Duration(seconds: 3), checkAll);  // ← محذوف
-    
-    // تحديث فقط إذا مر أكثر من 24 ساعة من آخر تحديث
-    if (Store.shouldSync()) {
-      Future.delayed(const Duration(seconds: 3), checkAll);
-    }
-  }
-
-  // ✅ دالة جديدة: تحديث يدوي فوري
-  static Future<void> syncNow() async {
-    await checkAll();
-    await Store.setLastSyncTime(DateTime.now().millisecondsSinceEpoch);
+    _timer ??= Timer.periodic(const Duration(hours: 2), (_) => checkAll());
+    Future.delayed(const Duration(seconds: 3), checkAll);
   }
 
   static Future checkAll() async {
@@ -662,7 +686,6 @@ class Sync {
     }
     status.value = '';
     _busy = false;
-    await Store.setLastSyncTime(DateTime.now().millisecondsSinceEpoch);
     Store.tick.value++;
   }
 }
@@ -821,7 +844,7 @@ class Tmdb {
 
   static String _cleanQuery(String title) {
     var t = title.trim().split('\n').first.trim();
-    t = t.replaceAll(RegExp(r'[\[\]【】{}《》«»]'), ' ');
+    t = t.replaceAll(RegExp(r'\[\【】{}《》«»]'), ' ');
     t = t.replaceAll(RegExp(r'\b(19|20)\d{2}\b'), ' ');
     t = t.replaceAll(RegExp(
         r'\b(2160p|1080p|720p|480p|360p|4k|uhd|bluray|web-?dl|hdrip|hdtv|dvdrip|brrip|fhd|hd)\b',
@@ -906,14 +929,36 @@ class Smart {
     }
   }
 
+  /* مفتاح العنوان: يتجاهل السنة والأرقام والجودة */
+  static String titleKey(String t) {
+    var s = t.replaceAll(RegExp(r'[\[\(].*?[\]\)]'), ' ');
+    s = s.replaceAll(RegExp(r'(19|20)\d{2}'), ' ');
+    s = s.replaceAll(RegExp(r'\d+'), ' ');
+    s = s.replaceAll(
+        RegExp(
+            r'(2160p|1080p|720p|480p|360p|4k|uhd|hdr|bluray|web-?dl|hdtv|dvdrip|brrip|fhd|hd)',
+            caseSensitive: false),
+        ' ');
+    return Search.norm(s);
+  }
+
+  /* دمج المكررات: نفس العنوان = نفس الفيلم + جمع جوداته */
   static List<Movie> dedup(List<Movie> l) {
-    final seen = <String>{};
+    final seen = <String, Movie>{};
     final out = <Movie>[];
     for (final m in l) {
-      final k = Search.norm(m.title);
-      if (k.isEmpty || seen.contains(k)) continue;
-      seen.add(k);
-      out.add(m);
+      final k = titleKey(m.title);
+      if (k.isEmpty) {
+        out.add(m);
+        continue;
+      }
+      final e = seen[k];
+      if (e == null) {
+        seen[k] = m;
+        out.add(m);
+      } else {
+        e.absorb(m);
+      }
     }
     return out;
   }
@@ -971,7 +1016,7 @@ class Sorter {
           for (final g in h.genres) genreW[g] = (genreW[g] ?? 0) + 1;
           if (h.year > 0) {
             decadeW[(h.year ~/ 10) * 10] =
-                (decadeW[(h.year ~/ 10) * 10] ?? 0) + 1;
+                ((decadeW[(h.year ~/ 10) * 10]) ?? 0) + 1;
           }
         }
         final rates = Store.ratings();
