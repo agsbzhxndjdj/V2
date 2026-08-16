@@ -41,7 +41,7 @@ bool _inProgress(Movie m) {
   return pos > 60 && !_isFinished(m);
 }
 
-/* ======== الهيكل الرئيسي ======== */
+/* ======== الهيكل الرئيسي (5 تبويبات) ======== */
 class HomeShell extends StatelessWidget {
   const HomeShell({super.key});
   @override
@@ -281,11 +281,19 @@ class _HomePageState extends State<HomePage> {
       child: FilterChip(label: Text(t, style: const TextStyle(fontSize: 11)), selected: on, onSelected: (_) => f(), selectedColor: AppTheme.accent.withOpacity(0.4)));
 }
 
-/* ======== بطاقة فيلم ======== */
+/* ======== بطاقة فيلم (مع زر تبديل الجودات) ======== */
 class MovieCard extends StatelessWidget {
   final Movie m;
   const MovieCard({super.key, required this.m});
   Widget _ph() => Container(color: const Color(0xFF1B2430), child: const Center(child: Icon(Icons.movie_filter, size: 42, color: Colors.amber)));
+
+  void _cycle(BuildContext context) {
+    m.cycleQuality();
+    Store.tick.value++;
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('الجودة: ${m.quality}'), duration: const Duration(milliseconds: 700)));
+  }
+
   @override
   Widget build(BuildContext context) => Card(key: ValueKey('card_${m.id}_${Store.tick.value}'), clipBehavior: Clip.antiAlias, margin: const EdgeInsets.all(6),
       child: InkWell(onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => MovieDetailsScreen(m: m))),
@@ -300,16 +308,27 @@ class MovieCard extends StatelessWidget {
                     decoration: const BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Colors.transparent, Colors.black87])),
                     child: Text(m.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)))),
             if (m.quality.isNotEmpty)
-              Positioned(top: 6, right: 6, child: Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(color: AppTheme.accent, borderRadius: BorderRadius.circular(6)),
-                  child: Text(m.quality, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.black)))),
+              Positioned(top: 6, right: 6, child: GestureDetector(
+                  onTap: () => _cycle(context),
+                  child: Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(color: AppTheme.accent, borderRadius: BorderRadius.circular(6)),
+                      child: Text(m.quality, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.black))))),
+            if (m.qualityOptions.length > 1)
+              Positioned(top: 28, right: 6, child: GestureDetector(
+                  onTap: () => _cycle(context),
+                  child: Container(padding: const EdgeInsets.all(3),
+                      decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(6)),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        const Icon(Icons.hd, size: 13, color: Colors.white),
+                        Text(' ${m.qualityOptions.length}', style: const TextStyle(fontSize: 9, color: Colors.white)),
+                      ])))),
             if (Store.isPinned(m.id))
               Positioned(top: 6, left: 6, child: Icon(Icons.push_pin, size: 16, color: AppTheme.accent)),
             if (m.duration.isNotEmpty)
               Positioned(bottom: 30, left: 6, child: Text(m.duration, style: const TextStyle(fontSize: 9, color: Colors.white70))),
             if (_inProgress(m))
               Positioned(left: 6, right: 6, bottom: 0, child: LinearProgressIndicator(value: Store.getPosition(m.id) / max(1, _durSec(m.duration)), minHeight: 3, valueColor: AlwaysStoppedAnimation(AppTheme.accent), backgroundColor: Colors.black54)),
-            Positioned(top: 24, left: 4, child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Positioned(top: 48, left: 4, child: Row(mainAxisSize: MainAxisSize.min, children: [
               ValueListenableBuilder<int>(valueListenable: Store.tick, builder: (_, __, ___) => IconButton(
                   icon: Icon(Store.isFav(m.id) ? Icons.favorite : Icons.favorite_border, size: 20, color: Store.isFav(m.id) ? Colors.red : Colors.white70),
                   onPressed: () => Store.toggleFav(m))),
@@ -374,6 +393,26 @@ class _MovieDetailsScreenState extends State<MovieDetailsScreen> {
       decoration: BoxDecoration(color: const Color(0xFF1B2430), borderRadius: BorderRadius.circular(20)),
       child: Text(t, style: TextStyle(fontSize: 11, color: AppTheme.accent)));
 
+  void _qualityMenu() {
+    final m = widget.m;
+    final opts = m.qualityOptions;
+    if (opts.length < 2) return;
+    showModalBottomSheet(backgroundColor: const Color(0xFF151B23), context: context,
+        builder: (_) => Wrap(children: [
+              ...opts.map((a) => ListTile(
+                  title: Text('${a['q']}${a['url'] == m.videoUrl ? '  ✔' : ''}',
+                      textAlign: TextAlign.center),
+                  onTap: () {
+                    Navigator.pop(context);
+                    if (a['url'] != m.videoUrl) {
+                      m.applyQuality(a['url']!);
+                      Store.tick.value++;
+                      setState(() {});
+                    }
+                  })),
+            ]));
+  }
+
   @override
   Widget build(BuildContext context) {
     final m = widget.m;
@@ -397,6 +436,8 @@ class _MovieDetailsScreenState extends State<MovieDetailsScreen> {
             Row(children: [
               IconButton(icon: const Icon(Icons.arrow_back, color: Colors.white), onPressed: () => Navigator.pop(context)),
               Expanded(child: Text(m.title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis)),
+              if (m.qualityOptions.length > 1)
+                IconButton(icon: const Icon(Icons.hd, color: AppTheme.accent), onPressed: _qualityMenu),
               IconButton(icon: const Icon(Icons.ondemand_video, color: Colors.redAccent), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => TrailerScreen(query: m.title)))),
               ValueListenableBuilder<int>(valueListenable: Store.tick, builder: (_, __, ___) => IconButton(
                   icon: Icon(Store.isLater(m.id) ? Icons.bookmark : Icons.bookmark_border, color: Store.isLater(m.id) ? AppTheme.accent : Colors.white70),
@@ -636,11 +677,17 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
 
   void _qualityMenu() {
     final m = widget.movie!;
+    final opts = m.qualityOptions;
+    if (opts.length < 2) return;
     showModalBottomSheet(backgroundColor: const Color(0xFF151B23), context: context,
         builder: (_) => Wrap(children: [
-              ...m.alts.map((a) => ListTile(
-                  title: Text(a['q'] ?? 'جودة أخرى', textAlign: TextAlign.center),
-                  onTap: () { Navigator.pop(context); _switchUrl(a['url']!); })),
+              ...opts.map((a) => ListTile(
+                  title: Text('${a['q']}${a['url'] == m.videoUrl ? '  ✔' : ''}',
+                      textAlign: TextAlign.center),
+                  onTap: () {
+                    Navigator.pop(context);
+                    if (a['url'] != m.videoUrl) _switchUrl(a['url']!);
+                  })),
             ]));
   }
 
@@ -668,6 +715,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       old?.dispose();
       if (!mounted) return;
       setState(() { _c = c; _ready = true; });
+      widget.movie?.applyQuality(url);
       c.setVolume(1);
       c.play();
       _poke();
@@ -782,7 +830,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                     child: SafeArea(child: Row(children: [
                       IconButton(icon: const Icon(Icons.arrow_back, color: Colors.white), onPressed: () => Navigator.pop(context)),
                       Expanded(child: Text(widget.title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                      if (widget.movie != null && widget.movie!.alts.isNotEmpty)
+                      if (widget.movie != null && widget.movie!.qualityOptions.length > 1)
                         IconButton(icon: const Icon(Icons.hd, color: Colors.white70), onPressed: _qualityMenu),
                       IconButton(icon: Icon(_locked ? Icons.lock : Icons.lock_open, color: Colors.white70),
                           onPressed: () => setState(() { _locked = !_locked; _ui = false; })),
