@@ -4,7 +4,7 @@ import 'package:dio/dio.dart';
 
 class SubtitleService {
   static const String _baseUrl = 'https://api.opensubtitles.com/api/v1';
-  static const String _apiKey = 'YOUR_OPENSUBTITLES_API_KEY'; // ⚠️ ضع مفتاحك هنا
+  static const String _apiKey = '56G4MJyCa7BeMwW8P7mNIJeZAlsUH6yp'; // ⚠️ ضع مفتاحك هنا
   
   static final Dio _dio = Dio(BaseOptions(
     baseUrl: _baseUrl,
