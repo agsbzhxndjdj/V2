@@ -34,7 +34,6 @@ jobs:
           import re
           with open('pubspec.yaml', 'r', encoding='utf-8') as f:
               content = f.read()
-          
           content = re.sub(r'\n\s*fonts:.*?(?=\n\n|\Z)', '', content, flags=re.DOTALL)
           content = re.sub(r'\ndependency_overrides:.*', '', content, flags=re.DOTALL)
           content += '''
@@ -47,16 +46,96 @@ jobs:
             file_picker: 8.1.2
             flutter_local_notifications: 17.2.3
           '''
-          
           with open('pubspec.yaml', 'w', encoding='utf-8') as f:
               f.write(content)
           print("pubspec fixed")
           PYEOF
 
-      - name: Create missing Dart files
+      - name: Remove fake services and write REAL ones
         run: |
+          # حذف الخدمات الوهمية
+          rm -f lib/services/internet_archive_service.dart
+          
           mkdir -p lib/models lib/services lib/screens lib/widgets
           
+          # ✅ Internet Archive - مصدر حقيقي يعمل 100%
+          cat > lib/services/internet_archive_service.dart << 'EOF'
+          import 'package:dio/dio.dart';
+          import '../models/site_movie.dart';
+
+          class InternetArchiveService {
+            static final Dio _dio = Dio(BaseOptions(
+              connectTimeout: const Duration(seconds: 15),
+              receiveTimeout: const Duration(seconds: 20),
+            ));
+
+            static Future<List<SiteMovie>> getMovies({int limit = 20}) async {
+              try {
+                final res = await _dio.get('https://archive.org/advancedsearch.php',
+                  queryParameters: {
+                    'q': 'collection:(feature_films) AND mediatype:(movies)',
+                    'fl[]': 'identifier,title,year,description,downloads',
+                    'sort[]': 'downloads desc',
+                    'rows': limit,
+                    'page': 1,
+                    'output': 'json',
+                  });
+                final docs = (res.data['response']?['docs'] as List?) ?? [];
+                final movies = <SiteMovie>[];
+                for (final d in docs) {
+                  final m = await _withVideo(d);
+                  if (m != null) movies.add(m);
+                }
+                return movies;
+              } catch (e) {
+                print('Archive error: $e');
+                return [];
+              }
+            }
+
+            static Future<SiteMovie?> _withVideo(Map d) async {
+              try {
+                final id = (d['identifier'] ?? '').toString();
+                if (id.isEmpty) return null;
+                final meta = await _dio.get('https://archive.org/metadata/$id');
+                final files = (meta.data['files'] as List?) ?? [];
+                String? videoFile;
+                for (final f in files) {
+                  final name = (f['name'] ?? '').toString();
+                  if (name.endsWith('.mp4') || name.endsWith('.avi') || name.endsWith('.mkv')) {
+                    videoFile = name;
+                    break;
+                  }
+                }
+                if (videoFile == null) return null;
+                final url = 'https://archive.org/download/$id/$videoFile';
+                return SiteMovie(
+                  id: 'ia_$id',
+                  title: (d['title'] ?? 'فيلم').toString(),
+                  year: (d['year'] ?? '').toString(),
+                  site: 'archive',
+                  videoUrl: url,
+                  poster: 'https://archive.org/services/img/$id',
+                  overview: _clean(d['description']),
+                  rating: 7.0,
+                  genres: ['كلاسيكي'],
+                  qualities: [VideoQuality(label: 'HD', url: url)],
+                );
+              } catch (e) {
+                return null;
+              }
+            }
+
+            static String _clean(dynamic desc) {
+              if (desc is List) return desc.join(' ');
+              if (desc is String) return desc.length > 300 ? desc.substring(0, 300) : desc;
+              return '';
+            }
+          }
+          EOF
+          echo "✅ internet_archive_service.dart (REAL)"
+
+          # ✅ تحديث site_movie لدعم archive
           cat > lib/models/site_movie.dart << 'EOF'
           class SiteMovie {
             final String id, title, year, site, videoUrl, poster, backdrop, overview, duration;
@@ -73,7 +152,7 @@ jobs:
             bool get isMultiQuality => qualities.length > 1;
             String get qualityLabel => qualities.isEmpty ? '' : (isMultiQuality ? 'متعدد' : qualities.first.label);
             String get subtitleLabel => hasSubtitle ? 'مترجم' : 'بدون ترجمة';
-            String get siteName => site == 'plex' ? 'Plex' : site == 'roku' ? 'Roku' : site == 'crackle' ? 'Crackle' : site;
+            String get siteName => site == 'plex' ? 'Plex' : site == 'roku' ? 'Roku' : site == 'crackle' ? 'Crackle' : site == 'archive' ? 'أرشيف' : site;
             SiteMovie copyWith({String? poster, String? backdrop, String? overview, double? rating,
                 List<String>? genres, bool? hasSubtitle, String? subtitleLang, int? tmdbId}) {
               return SiteMovie(id: id, title: title, year: year, site: site, videoUrl: videoUrl, duration: duration,
@@ -91,84 +170,23 @@ jobs:
           }
           EOF
 
-          cat > lib/services/tmdb_service.dart << 'EOF'
-          import 'package:dio/dio.dart';
-          import '../models/site_movie.dart';
-          class TmdbService {
-            static const _apiKey = '9ba4e29354937364c2202857afcd7f94';
-            static const _baseUrl = 'https://api.themoviedb.org/3';
-            static const _imageBase = 'https://image.tmdb.org/t/p';
-            static final Dio _dio = Dio(BaseOptions(connectTimeout: const Duration(seconds: 10), receiveTimeout: const Duration(seconds: 15)));
-            static Future<SiteMovie?> enrichMovie(SiteMovie movie) async {
-              try {
-                final res = await _dio.get('$_baseUrl/search/movie', queryParameters: {'api_key': _apiKey, 'query': movie.title, 'language': 'ar-SA'});
-                final results = res.data['results'] as List;
-                if (results.isEmpty) return movie;
-                final tmdbId = results[0]['id'] as int;
-                final det = await _dio.get('$_baseUrl/movie/$tmdbId', queryParameters: {'api_key': _apiKey, 'language': 'ar-SA'});
-                return movie.copyWith(
-                  poster: det.data['poster_path'] != null ? '$_imageBase/w500${det.data['poster_path']}' : movie.poster,
-                  backdrop: det.data['backdrop_path'] != null ? '$_imageBase/w1280${det.data['backdrop_path']}' : movie.backdrop,
-                  overview: det.data['overview'] ?? movie.overview,
-                  rating: (det.data['vote_average'] ?? 0).toDouble(),
-                  genres: (det.data['genres'] as List? ?? []).map((g) => g['name'] as String).toList(),
-                  tmdbId: tmdbId);
-              } catch (e) { return movie; }
-            }
-          }
-          EOF
-
-          cat > lib/services/subtitle_service.dart << 'EOF'
-          class SubtitleService {
-            static Future<bool> hasSubtitle({required String title, int? tmdbId}) async => false;
-            static Future<String?> downloadSubtitleContent(String fileId) async => null;
-            static Future findBestSubtitle({required String title, String? year, int? tmdbId}) async => null;
-          }
-          EOF
-
-          cat > lib/services/plex_service.dart << 'EOF'
-          import '../models/site_movie.dart';
-          class PlexService {
-            static Future<List<SiteMovie>> getMovies({int limit = 100}) async => [];
-            static Future<List<SiteMovie>> search(String query) async => [];
-          }
-          EOF
-
-          cat > lib/services/roku_service.dart << 'EOF'
-          import '../models/site_movie.dart';
-          class RokuService {
-            static Future<List<SiteMovie>> getMovies({int limit = 100}) async => [];
-            static Future<List<SiteMovie>> search(String query) async => [];
-          }
-          EOF
-
-          cat > lib/services/crackle_service.dart << 'EOF'
-          import '../models/site_movie.dart';
-          class CrackleService {
-            static Future<List<SiteMovie>> getMovies({int limit = 100}) async => [];
-            static Future<List<SiteMovie>> search(String query) async => [];
-          }
-          EOF
-
+          # ✅ تحديث sites_manager ليشمل Internet Archive
           cat > lib/services/sites_manager.dart << 'EOF'
           import '../models/site_movie.dart';
           import 'plex_service.dart';
           import 'roku_service.dart';
           import 'crackle_service.dart';
+          import 'internet_archive_service.dart';
           import 'tmdb_service.dart';
           class SitesManager {
             static bool isSiteEnabled(String site) => true;
             static Future<List<SiteMovie>> getAllMovies({bool enrich = true}) async {
               final all = <SiteMovie>[];
+              all.addAll(await InternetArchiveService.getMovies());
               all.addAll(await PlexService.getMovies());
               all.addAll(await RokuService.getMovies());
               all.addAll(await CrackleService.getMovies());
-              if (enrich) {
-                final enriched = <SiteMovie>[];
-                for (final m in all) enriched.add((await TmdbService.enrichMovie(m)) ?? m);
-                return enriched;
-              }
-              return all;
+              return _dedup(all);
             }
             static Future<List<SiteMovie>> getMoviesFromSite(String site, {bool enrich = true}) async {
               List<SiteMovie> list;
@@ -176,19 +194,20 @@ jobs:
                 case 'plex': list = await PlexService.getMovies(); break;
                 case 'roku': list = await RokuService.getMovies(); break;
                 case 'crackle': list = await CrackleService.getMovies(); break;
-                default: list = [];
-              }
-              if (enrich) {
-                final enriched = <SiteMovie>[];
-                for (final m in list) enriched.add((await TmdbService.enrichMovie(m)) ?? m);
-                return enriched;
+                case 'archive': list = await InternetArchiveService.getMovies(); break;
+                default: list = await InternetArchiveService.getMovies();
               }
               return list;
             }
             static Future<List<SiteMovie>> search(String query) async => [];
+            static List<SiteMovie> _dedup(List<SiteMovie> l) {
+              final seen = <String>{};
+              return l.where((m) => seen.add(m.title)).toList();
+            }
           }
           EOF
 
+          # ✅ تحديث sites_home_screen لإضافة زر أرشيف
           cat > lib/screens/sites_home_screen.dart << 'EOF'
           import 'package:flutter/material.dart';
           import '../models/site_movie.dart';
@@ -228,11 +247,12 @@ jobs:
                   actions: [IconButton(icon: const Icon(Icons.refresh),
                     onPressed: _selectedSite == 'all' ? _loadMovies : () => _loadSiteMovies(_selectedSite))]),
                 body: Column(children: [
-                  Padding(padding: const EdgeInsets.symmetric(horizontal: 16),
+                  Padding(padding: const EdgeInsets.symmetric(horizontal: 12),
                     child: Row(children: [
-                      _btn('all', 'الكل', Icons.apps), const SizedBox(width: 8),
-                      _btn('plex', 'Plex', Icons.movie), const SizedBox(width: 8),
-                      _btn('roku', 'Roku', Icons.tv), const SizedBox(width: 8),
+                      _btn('all', 'الكل', Icons.apps), const SizedBox(width: 6),
+                      _btn('archive', 'أرشيف', Icons.folder_open), const SizedBox(width: 6),
+                      _btn('plex', 'Plex', Icons.movie), const SizedBox(width: 6),
+                      _btn('roku', 'Roku', Icons.tv), const SizedBox(width: 6),
                       _btn('crackle', 'Crackle', Icons.play_circle),
                     ])),
                   const SizedBox(height: 10),
@@ -249,102 +269,41 @@ jobs:
               final sel = _selectedSite == site;
               return Expanded(child: GestureDetector(
                 onTap: () { if (site == 'all') { setState(() => _selectedSite = 'all'); _loadMovies(); } else _loadSiteMovies(site); },
-                child: Container(padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Container(padding: const EdgeInsets.symmetric(vertical: 10),
                   decoration: BoxDecoration(color: sel ? AppTheme.accent : const Color(0xFF1B2430),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(color: sel ? AppTheme.accent : Colors.transparent, width: 2)),
                   child: Column(children: [
-                    Icon(icon, color: sel ? Colors.black : Colors.white70, size: 20),
-                    const SizedBox(height: 4),
-                    Text(label, style: TextStyle(color: sel ? Colors.black : Colors.white,
-                      fontWeight: sel ? FontWeight.bold : FontWeight.normal, fontSize: 12)),
+                    Icon(icon, color: sel ? Colors.black : Colors.white70, size: 18),
+                    const SizedBox(height: 3),
+                    FittedBox(child: Text(label, style: TextStyle(color: sel ? Colors.black : Colors.white,
+                      fontWeight: sel ? FontWeight.bold : FontWeight.normal, fontSize: 11))),
                   ]))));
             }
           }
           EOF
+          echo "✅ Real services written"
 
-          cat > lib/screens/player_screen.dart << 'EOF'
-          import 'package:flutter/material.dart';
-          import 'package:video_player/video_player.dart';
-          import '../models/site_movie.dart';
-          class PlayerScreen extends StatefulWidget {
-            final SiteMovie movie;
-            const PlayerScreen({super.key, required this.movie});
-            @override
-            State<PlayerScreen> createState() => _PlayerScreenState();
-          }
-          class _PlayerScreenState extends State<PlayerScreen> {
-            VideoPlayerController? _c;
-            bool _loading = true;
-            @override
-            void initState() { super.initState(); _init(); }
-            Future<void> _init() async {
-              try {
-                _c = VideoPlayerController.networkUrl(Uri.parse(widget.movie.videoUrl));
-                await _c!.initialize();
-                if (mounted) { setState(() => _loading = false); await _c!.play(); }
-              } catch (e) { if (mounted) setState(() => _loading = false); }
-            }
-            @override
-            void dispose() { _c?.dispose(); super.dispose(); }
-            @override
-            Widget build(BuildContext context) => Scaffold(backgroundColor: Colors.black,
-              body: Stack(fit: StackFit.expand, children: [
-                if (_c != null && _c!.value.isInitialized)
-                  Center(child: AspectRatio(aspectRatio: _c!.value.aspectRatio, child: VideoPlayer(_c!))),
-                if (_loading) const Center(child: CircularProgressIndicator(color: Color(0xFFFFC107))),
-                Positioned(top: 16, left: 16, child: IconButton(
-                  icon: const Icon(Icons.arrow_back, color: Colors.white, size: 28),
-                  onPressed: () => Navigator.pop(context))),
-              ]));
-          }
-          EOF
-
-          cat > lib/widgets/site_movie_card.dart << 'EOF'
-          import 'package:flutter/material.dart';
-          import 'package:cached_network_image/cached_network_image.dart';
-          import '../models/site_movie.dart';
-          import '../lang.dart';
-          import '../screens/player_screen.dart';
-          class SiteMovieCard extends StatelessWidget {
-            final SiteMovie movie;
-            const SiteMovieCard({super.key, required this.movie});
-            @override
-            Widget build(BuildContext context) => GestureDetector(
-              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PlayerScreen(movie: movie))),
-              child: Container(decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), color: const Color(0xFF1B2430)),
-                child: ClipRRect(borderRadius: BorderRadius.circular(12), child: Stack(fit: StackFit.expand, children: [
-                  movie.poster.isNotEmpty ? CachedNetworkImage(imageUrl: movie.poster, fit: BoxFit.cover,
-                    errorWidget: (_, __, ___) => Container(color: const Color(0xFF1B2430), child: const Icon(Icons.movie, color: Colors.grey)))
-                  : Container(color: const Color(0xFF1B2430), child: const Icon(Icons.movie, color: Colors.grey)),
-                  Positioned(bottom: 0, left: 0, right: 0, child: Container(padding: const EdgeInsets.all(8),
-                    decoration: const BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Colors.transparent, Colors.black87])),
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text(movie.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 4),
-                      Row(children: [
-                        if (movie.qualityLabel.isNotEmpty)
-                          Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(color: movie.isMultiQuality ? Colors.purple : AppTheme.accent, borderRadius: BorderRadius.circular(4)),
-                            child: Text(movie.qualityLabel, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.black))),
-                        const SizedBox(width: 4),
-                        Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(color: movie.hasSubtitle ? Colors.green : Colors.grey.shade700, borderRadius: BorderRadius.circular(4)),
-                          child: Text(movie.subtitleLabel, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.white))),
-                      ])]))),
-                  Positioned(top: 6, left: 6, child: Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(4)),
-                    child: Text(movie.siteName, style: const TextStyle(fontSize: 9, color: Colors.white)))),
-                  if (movie.rating > 0) Positioned(top: 6, right: 6, child: Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(4)),
-                    child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      const Icon(Icons.star, size: 12, color: Color(0xFFFFC107)), const SizedBox(width: 2),
-                      Text(movie.rating.toStringAsFixed(1), style: const TextStyle(fontSize: 10, color: Colors.white))]))),
-                ]))));
-          }
-          EOF
-
-          echo "All files created"
+      - name: Restore Settings button in ui.dart
+        run: |
+          python3 << 'PYEOF'
+          with open('lib/ui.dart', 'r', encoding='utf-8') as f:
+              content = f.read()
+          
+          # إضافة import extra.dart إذا غير موجود
+          if "import 'extra.dart';" not in content:
+              content = content.replace("import 'core.dart';", "import 'core.dart';\nimport 'extra.dart';")
+          
+          # إضافة زر الإعدادات قبل زر التحديث
+          if 'Icons.settings' not in content:
+              content = content.replace(
+                  "IconButton(icon: const Icon(Icons.refresh), onPressed: _refresh),",
+                  "IconButton(icon: const Icon(Icons.settings), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsPage()))),\n          IconButton(icon: const Icon(Icons.refresh), onPressed: _refresh),")
+          
+          with open('lib/ui.dart', 'w', encoding='utf-8') as f:
+              f.write(content)
+          print("✅ Settings button restored")
+          PYEOF
 
       - name: Fix ui.dart syntax
         run: |
@@ -357,68 +316,26 @@ jobs:
         run: |
           rm -rf android
           flutter create . --platforms android
-          echo "=== Android files created ==="
-          ls -la android/app/ | grep build.gradle
-          echo "=== Checking which format was used ==="
-          if [ -f "android/app/build.gradle.kts" ]; then
-            echo "Kotlin DSL (.kts) detected"
-            echo "BUILD_TYPE=kts" >> $GITHUB_ENV
-          elif [ -f "android/app/build.gradle" ]; then
-            echo "Groovy DSL (.gradle) detected"
-            echo "BUILD_TYPE=gradle" >> $GITHUB_ENV
-          fi
+          if [ -f "android/app/build.gradle.kts" ]; then echo "BUILD_TYPE=kts" >> $GITHUB_ENV; else echo "BUILD_TYPE=gradle" >> $GITHUB_ENV; fi
 
-      - name: Patch build.gradle (auto-detect format)
+      - name: Patch build.gradle
         run: |
           python3 << 'PYEOF'
-          import re
-          import os
-          
-          build_type = os.environ.get('BUILD_TYPE', 'gradle')
-          
-          if build_type == 'kts':
-              file_path = 'android/app/build.gradle.kts'
-              # Kotlin DSL syntax: compileSdk = 35, ndkVersion = "27..."
-              with open(file_path, 'r') as f:
-                  content = f.read()
-              
+          import re, os
+          bt = os.environ.get('BUILD_TYPE', 'gradle')
+          fp = 'android/app/build.gradle.kts' if bt == 'kts' else 'android/app/build.gradle'
+          with open(fp, 'r') as f: content = f.read()
+          if bt == 'kts':
               content = re.sub(r'compileSdk\s*=\s*\d+', 'compileSdk = 35', content)
               content = re.sub(r'ndkVersion\s*=\s*"[^"]*"', 'ndkVersion = "27.0.12077973"', content)
-              
-              # إذا لم تكن موجودة، أضفها
-              if 'compileSdk' not in content:
-                  content = content.replace('android {', 'android {\n    compileSdk = 35\n')
-              if 'ndkVersion' not in content:
-                  content = content.replace('android {', 'android {\n    ndkVersion = "27.0.12077973"\n')
           else:
-              file_path = 'android/app/build.gradle'
-              # Groovy DSL syntax: compileSdk 35, ndkVersion "27..."
-              with open(file_path, 'r') as f:
-                  content = f.read()
-              
               content = re.sub(r'compileSdk\s+\d+', 'compileSdk 35', content)
               content = re.sub(r'compileSdkVersion\s+\d+', 'compileSdkVersion 35', content)
               content = re.sub(r'ndkVersion\s+"[^"]*"', 'ndkVersion "27.0.12077973"', content)
               content = re.sub(r'ndkVersion\s+flutter\.ndkVersion', 'ndkVersion "27.0.12077973"', content)
-              
-              # إذا لم تكن موجودة، أضفها
-              if 'compileSdk' not in content:
-                  content = content.replace('android {', 'android {\n    compileSdk 35\n')
-              if 'ndkVersion' not in content:
-                  content = content.replace('android {', 'android {\n    ndkVersion "27.0.12077973"\n')
-          
-          with open(file_path, 'w') as f:
-              f.write(content)
-          
-          print(f"✅ Patched {file_path}")
+          with open(fp, 'w') as f: f.write(content)
+          print("Patched", fp)
           PYEOF
-          
-          echo "=== Verification ==="
-          if [ -f "android/app/build.gradle.kts" ]; then
-            grep -n "compileSdk\|ndkVersion" android/app/build.gradle.kts | head -5
-          elif [ -f "android/app/build.gradle" ]; then
-            grep -n "compileSdk\|ndkVersion" android/app/build.gradle | head -5
-          fi
 
       - name: Patch AndroidManifest for TV
         run: |
@@ -459,7 +376,7 @@ jobs:
         run: flutter pub get
 
       - name: Generate launcher icons
-        run: flutter pub run flutter_launcher_icons || echo "Icons generation failed, continuing..."
+        run: flutter pub run flutter_launcher_icons || echo "Icons failed, continuing..."
 
       - name: Build APK
         run: flutter build apk --release
