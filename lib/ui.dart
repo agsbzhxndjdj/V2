@@ -9,7 +9,6 @@ import 'features.dart';
 import 'auth.dart';
 import 'services/sites_manager.dart';
 import 'screens/sites_home_screen.dart';
-import 'models/site_movie.dart';
 
 /* ======== الهيكل الرئيسي ======== */
 class HomeShell extends StatelessWidget {
