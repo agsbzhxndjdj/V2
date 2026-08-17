@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:convert';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 
 /* ======== إعدادات الخادم ======== */
 class ApiConfig {
@@ -331,7 +331,7 @@ class BulkLoader {
       final ids = Store.moviesOf(user).map((e) => e.msgId).toSet();
       var pages = 0;
       while (pages < 60) {
-        status.value = 'تحميل ${user}… (${ids.length} فيلم)';
+        status.value = 'تحميل $user… (${ids.length} فيلم)';
         final page = await Tg.fetchPage(user, before: offset);
         if (page.movies.isEmpty) break;
         final fresh = page.movies.where((m) => !ids.contains(m.msgId)).toList();
@@ -424,6 +424,15 @@ class Store {
   static Future clearCache() async {
     await _mv.clear();
     tick.value++;
+  }
+
+  /* ======== تتبع آخر تحديث ======== */
+  static int get lastSyncTime => (prefs()['lastSync'] as int?) ?? 0;
+  static Future setLastSyncTime(int timestamp) => setPref('lastSync', timestamp);
+  static bool shouldSync() {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final diff = now - lastSyncTime;
+    return diff > (24 * 60 * 60 * 1000);
   }
 
   /* ---- الحسابات المتعددة 👥 (42) ---- */
@@ -586,8 +595,8 @@ class Store {
   static Future delPlaylist(String name) async {
     final p = playlists();
     p.remove(name);
-    tick.value++;
     await _st.put('playlists', p);
+    tick.value++;
   }
 
   static List<Movie> playlistMovies(String name) =>
@@ -655,6 +664,17 @@ class Store {
   }
 }
 
+/* ======== إعدادات المواقع ======== */
+extension SitesSettings on Store {
+  static bool get sitesEnabled => Store.getBool('sites_enabled', true);
+  static Future<void> setSitesEnabled(bool enabled) => 
+      Store.setPref('sites_enabled', enabled);
+  
+  static bool isSiteEnabled(String site) => Store.getBool('site_$site', true);
+  static Future<void> setSiteEnabled(String site, bool enabled) => 
+      Store.setPref('site_$site', enabled);
+}
+
 /* ======== المزامنة الدورية ======== */
 class Sync {
   static bool _busy = false;
@@ -663,8 +683,16 @@ class Sync {
   static void Function(int count, String channel)? onNewMovies;
 
   static void start() {
-    _timer ??= Timer.periodic(const Duration(hours: 2), (_) => checkAll());
-    Future.delayed(const Duration(seconds: 3), checkAll);
+    _timer ??= Timer.periodic(const Duration(hours: 24), (_) {
+      if (Store.shouldSync()) {
+        checkAll();
+      }
+    });
+  }
+
+  static Future<void> syncNow() async {
+    await checkAll();
+    await Store.setLastSyncTime(DateTime.now().millisecondsSinceEpoch);
   }
 
   static Future checkAll() async {
@@ -686,6 +714,7 @@ class Sync {
     }
     status.value = '';
     _busy = false;
+    await Store.setLastSyncTime(DateTime.now().millisecondsSinceEpoch);
     Store.tick.value++;
   }
 }
@@ -844,7 +873,7 @@ class Tmdb {
 
   static String _cleanQuery(String title) {
     var t = title.trim().split('\n').first.trim();
-    t = t.replaceAll(RegExp(r'\[\【】{}《》«»]'), ' ');
+    t = t.replaceAll(RegExp(r'[\[\]【】{}《》«»]'), ' ');
     t = t.replaceAll(RegExp(r'\b(19|20)\d{2}\b'), ' ');
     t = t.replaceAll(RegExp(
         r'\b(2160p|1080p|720p|480p|360p|4k|uhd|bluray|web-?dl|hdrip|hdtv|dvdrip|brrip|fhd|hd)\b',
@@ -918,47 +947,25 @@ class Smart {
       connectTimeout: const Duration(seconds: 8),
       receiveTimeout: const Duration(seconds: 8)));
 
-  static Future<List<Map<String, dynamic>>> popular() async {
+  static Future<List<Movie>> popular() async {
     try {
       final r = await _d.get('${ApiConfig.baseUrl}/popular',
           queryParameters: {'key': ApiConfig.apiKey});
-      return List<Map<String, dynamic>>.from((r.data['items'] as List? ?? [])
-          .map((e) => Map<String, dynamic>.from(e)));
+      return List<Movie>.from((r.data['items'] as List? ?? [])
+          .map((e) => Movie.fromJson(Map<String, dynamic>.from(e))));
     } catch (_) {
       return [];
     }
   }
 
-  /* مفتاح العنوان: يتجاهل السنة والأرقام والجودة */
-  static String titleKey(String t) {
-    var s = t.replaceAll(RegExp(r'[\[\(].*?[\]\)]'), ' ');
-    s = s.replaceAll(RegExp(r'(19|20)\d{2}'), ' ');
-    s = s.replaceAll(RegExp(r'\d+'), ' ');
-    s = s.replaceAll(
-        RegExp(
-            r'(2160p|1080p|720p|480p|360p|4k|uhd|hdr|bluray|web-?dl|hdtv|dvdrip|brrip|fhd|hd)',
-            caseSensitive: false),
-        ' ');
-    return Search.norm(s);
-  }
-
-  /* دمج المكررات: نفس العنوان = نفس الفيلم + جمع جوداته */
   static List<Movie> dedup(List<Movie> l) {
-    final seen = <String, Movie>{};
+    final seen = <String>{};
     final out = <Movie>[];
     for (final m in l) {
-      final k = titleKey(m.title);
-      if (k.isEmpty) {
-        out.add(m);
-        continue;
-      }
-      final e = seen[k];
-      if (e == null) {
-        seen[k] = m;
-        out.add(m);
-      } else {
-        e.absorb(m);
-      }
+      final k = Search.norm(m.title);
+      if (k.isEmpty || seen.contains(k)) continue;
+      seen.add(k);
+      out.add(m);
     }
     return out;
   }
@@ -1016,7 +1023,7 @@ class Sorter {
           for (final g in h.genres) genreW[g] = (genreW[g] ?? 0) + 1;
           if (h.year > 0) {
             decadeW[(h.year ~/ 10) * 10] =
-                ((decadeW[(h.year ~/ 10) * 10]) ?? 0) + 1;
+                (decadeW[(h.year ~/ 10) * 10] ?? 0) + 1;
           }
         }
         final rates = Store.ratings();
@@ -1034,5 +1041,54 @@ class Sorter {
         l.sort((a, b) => b.date.compareTo(a.date));
     }
     return l;
+  }
+}
+
+/* ======== الثيمات ======== */
+class AppTheme {
+  static Color get accent => const Color(0xFFFFC107);
+
+  static ThemeData build(String name) {
+    Color primary;
+    switch (name) {
+      case 'blue':
+        primary = const Color(0xFF2196F3);
+        break;
+      case 'red':
+        primary = const Color(0xFFE53935);
+        break;
+      case 'green':
+        primary = const Color(0xFF4CAF50);
+        break;
+      case 'purple':
+        primary = const Color(0xFF9C27B0);
+        break;
+      default:
+        primary = const Color(0xFFFFC107);
+    }
+
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.dark,
+      primaryColor: primary,
+      scaffoldBackgroundColor: const Color(0xFF0B0F14),
+      colorScheme: ColorScheme.dark(
+        primary: primary,
+        secondary: primary,
+        surface: const Color(0xFF151B23),
+      ),
+      appBarTheme: const AppBarTheme(
+        backgroundColor: Color(0xFF0B0F14),
+        elevation: 0,
+        centerTitle: true,
+      ),
+      cardTheme: CardTheme(
+        color: const Color(0xFF151B23),
+        elevation: 2,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+    );
   }
 }
