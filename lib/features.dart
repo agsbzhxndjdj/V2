@@ -1050,3 +1050,79 @@ class MovieDetailsScreen extends StatelessWidget {
     );
   }
 }
+
+/* ======== 🎬 شاشة تفاصيل الفيلم ======== */
+class MovieDetailsScreen extends StatelessWidget {
+  final Movie m;
+  const MovieDetailsScreen({super.key, required this.m});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF0B0F14),
+      body: CustomScrollView(
+        slivers: [
+          SliverAppBar(
+            expandedHeight: 300,
+            pinned: true,
+            flexibleSpace: FlexibleSpaceBar(
+              background: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (m.poster.isNotEmpty)
+                    CachedNetworkImage(imageUrl: m.poster, fit: BoxFit.cover),
+                  Container(
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [Colors.transparent, Color(0xFF0B0F14)],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(m.title, style: const TextStyle(
+                    fontSize: 22, fontWeight: FontWeight.bold,
+                  )),
+                  const SizedBox(height: 8),
+                  Wrap(spacing: 8, children: [
+                    if (m.quality.isNotEmpty)
+                      Chip(label: Text(m.quality), backgroundColor: AppTheme.accent),
+                    if (m.year > 0) Chip(label: Text('${m.year}')),
+                    if (m.duration.isNotEmpty) Chip(label: Text(m.duration)),
+                  ]),
+                  const SizedBox(height: 16),
+                  FilledButton.icon(
+                    icon: const Icon(Icons.play_arrow),
+                    label: const Text('تشغيل'),
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => TvPlayer(movie: m)),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  if (m.description.isNotEmpty) ...[
+                    const Text('الوصف', style: TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.bold,
+                    )),
+                    const SizedBox(height: 8),
+                    Text(m.description, style: const TextStyle(height: 1.5)),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
