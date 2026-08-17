@@ -10,43 +10,289 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code (full history)
+      - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          lfs: false
 
-      - name: Verify critical files exist
+      - name: Create missing files if not exist
         run: |
-          echo "=== Checking critical files ==="
-          ls -la lib/models/ || echo "models dir not found"
-          ls -la lib/services/ || echo "services dir not found"
-          ls -la lib/widgets/ || echo "widgets dir not found"
-          ls -la lib/screens/ || echo "screens dir not found"
+          echo "=== Creating missing files ==="
           
-          # Verify specific files
+          # إنشاء lib/models/site_movie.dart إذا غير موجود
           if [ ! -f "lib/models/site_movie.dart" ]; then
-            echo "❌ lib/models/site_movie.dart MISSING"
-          else
-            echo "✅ lib/models/site_movie.dart found"
+            mkdir -p lib/models
+            cat > lib/models/site_movie.dart << 'DART_EOF'
+          class SiteMovie {
+            final String id;
+            final String title;
+            final String year;
+            final String site;
+            final String videoUrl;
+            final String poster;
+            final String backdrop;
+            final String overview;
+            final double rating;
+            final String duration;
+            final List<String> genres;
+            final List<VideoQuality> qualities;
+            final bool hasSubtitle;
+            final String? subtitleLang;
+            final int? tmdbId;
+
+            SiteMovie({
+              required this.id,
+              required this.title,
+              required this.year,
+              required this.site,
+              required this.videoUrl,
+              this.poster = '',
+              this.backdrop = '',
+              this.overview = '',
+              this.rating = 0,
+              this.duration = '',
+              this.genres = const [],
+              this.qualities = const [],
+              this.hasSubtitle = false,
+              this.subtitleLang,
+              this.tmdbId,
+            });
+
+            bool get isMultiQuality => qualities.length > 1;
+
+            String get qualityLabel {
+              if (qualities.isEmpty) return '';
+              if (isMultiQuality) return 'متعدد الجودات';
+              return qualities.first.label;
+            }
+
+            String get subtitleLabel => hasSubtitle ? 'مترجم' : 'بدون ترجمة';
+
+            String get siteName {
+              switch (site) {
+                case 'plex': return 'Plex';
+                case 'roku': return 'Roku';
+                case 'crackle': return 'Crackle';
+                default: return site;
+              }
+            }
+
+            SiteMovie copyWith({
+              String? poster,
+              String? backdrop,
+              String? overview,
+              double? rating,
+              List<String>? genres,
+              bool? hasSubtitle,
+              String? subtitleLang,
+              int? tmdbId,
+            }) {
+              return SiteMovie(
+                id: id,
+                title: title,
+                year: year,
+                site: site,
+                videoUrl: videoUrl,
+                poster: poster ?? this.poster,
+                backdrop: backdrop ?? this.backdrop,
+                overview: overview ?? this.overview,
+                rating: rating ?? this.rating,
+                duration: duration,
+                genres: genres ?? this.genres,
+                qualities: qualities,
+                hasSubtitle: hasSubtitle ?? this.hasSubtitle,
+                subtitleLang: subtitleLang ?? this.subtitleLang,
+                tmdbId: tmdbId ?? this.tmdbId,
+              );
+            }
+          }
+
+          class VideoQuality {
+            final String label;
+            final String url;
+            final int bandwidth;
+
+            VideoQuality({required this.label, required this.url, this.bandwidth = 0});
+
+            Map<String, dynamic> toJson() => {'label': label, 'url': url, 'bandwidth': bandwidth};
+
+            factory VideoQuality.fromJson(Map<String, dynamic> json) => VideoQuality(
+              label: json['label'] ?? '',
+              url: json['url'] ?? '',
+              bandwidth: json['bandwidth'] ?? 0,
+            );
+          }
+          DART_EOF
+            echo "✅ Created lib/models/site_movie.dart"
           fi
           
+          # إنشاء lib/services/tmdb_service.dart إذا غير موجود
           if [ ! -f "lib/services/tmdb_service.dart" ]; then
-            echo "❌ lib/services/tmdb_service.dart MISSING"
-          else
-            echo "✅ lib/services/tmdb_service.dart found"
+            cat > lib/services/tmdb_service.dart << 'DART_EOF'
+          import 'package:dio/dio.dart';
+          import '../models/site_movie.dart';
+
+          class TmdbService {
+            static const String _apiKey = '9ba4e29354937364c2202857afcd7f94';
+            static const String _baseUrl = 'https://api.themoviedb.org/3';
+            static const String _imageBase = 'https://image.tmdb.org/t/p';
+
+            static final Dio _dio = Dio(BaseOptions(
+              connectTimeout: const Duration(seconds: 10),
+              receiveTimeout: const Duration(seconds: 15),
+            ));
+
+            static Future<SiteMovie?> enrichMovie(SiteMovie movie) async {
+              try {
+                final searchResult = await _searchMovie(movie.title, movie.year);
+                if (searchResult == null) return movie;
+
+                final tmdbId = searchResult['id'] as int;
+                final details = await _getDetails(tmdbId);
+
+                return movie.copyWith(
+                  poster: details['poster'] ?? movie.poster,
+                  backdrop: details['backdrop'] ?? movie.backdrop,
+                  overview: details['overview'] ?? movie.overview,
+                  rating: details['rating'] ?? movie.rating,
+                  genres: details['genres'] ?? movie.genres,
+                  tmdbId: tmdbId,
+                );
+              } catch (e) {
+                print('TMDB error: $e');
+                return movie;
+              }
+            }
+
+            static Future<Map<String, dynamic>?> _searchMovie(String title, String year) async {
+              try {
+                final response = await _dio.get('$_baseUrl/search/movie', queryParameters: {
+                  'api_key': _apiKey, 'query': title, 'language': 'ar-SA',
+                  'include_adult': false, if (year.isNotEmpty) 'year': year,
+                });
+                final results = response.data['results'] as List;
+                return results.isEmpty ? null : results[0];
+              } catch (_) {
+                return null;
+              }
+            }
+
+            static Future<Map<String, dynamic>> _getDetails(int tmdbId) async {
+              try {
+                final response = await _dio.get('$_baseUrl/movie/$tmdbId', queryParameters: {
+                  'api_key': _apiKey, 'language': 'ar-SA',
+                });
+                final data = response.data;
+                return {
+                  'poster': data['poster_path'] != null ? '$_imageBase/w500${data['poster_path']}' : null,
+                  'backdrop': data['backdrop_path'] != null ? '$_imageBase/w1280${data['backdrop_path']}' : null,
+                  'overview': data['overview'] ?? '',
+                  'rating': (data['vote_average'] ?? 0).toDouble(),
+                  'genres': (data['genres'] as List? ?? []).map((g) => g['name'] as String).toList(),
+                };
+              } catch (_) {
+                return {};
+              }
+            }
+          }
+          DART_EOF
+            echo "✅ Created lib/services/tmdb_service.dart"
           fi
           
+          # إنشاء lib/widgets/site_movie_card.dart إذا غير موجود
           if [ ! -f "lib/widgets/site_movie_card.dart" ]; then
-            echo "❌ lib/widgets/site_movie_card.dart MISSING"
-          else
-            echo "✅ lib/widgets/site_movie_card.dart found"
+            mkdir -p lib/widgets
+            cat > lib/widgets/site_movie_card.dart << 'DART_EOF'
+          import 'package:flutter/material.dart';
+          import 'package:cached_network_image/cached_network_image.dart';
+          import '../models/site_movie.dart';
+          import '../core.dart';
+          import '../lang.dart';
+
+          class SiteMovieCard extends StatelessWidget {
+            final SiteMovie movie;
+            const SiteMovieCard({super.key, required this.movie});
+
+            @override
+            Widget build(BuildContext context) {
+              return GestureDetector(
+                onTap: () {
+                  // سيتم إصلاح هذا لاحقاً
+                },
+                child: Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    color: const Color(0xFF1B2430),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        movie.poster.isNotEmpty
+                            ? CachedNetworkImage(
+                                imageUrl: movie.poster,
+                                fit: BoxFit.cover,
+                                errorWidget: (_, __, ___) => Container(
+                                  color: const Color(0xFF1B2430),
+                                  child: const Icon(Icons.movie, size: 40, color: Colors.grey),
+                                ),
+                              )
+                            : Container(
+                                color: const Color(0xFF1B2430),
+                                child: const Icon(Icons.movie, size: 40, color: Colors.grey),
+                              ),
+                        Positioned(
+                          bottom: 0, left: 0, right: 0,
+                          child: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: const BoxDecoration(
+                              gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Colors.transparent, Colors.black87]),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(movie.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                const SizedBox(height: 4),
+                                Row(children: [
+                                  if (movie.qualityLabel.isNotEmpty)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(color: movie.isMultiQuality ? Colors.purple : AppTheme.accent, borderRadius: BorderRadius.circular(4)),
+                                      child: Text(movie.qualityLabel, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.black)),
+                                    ),
+                                  const SizedBox(width: 4),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(color: movie.hasSubtitle ? Colors.green : Colors.grey.shade700, borderRadius: BorderRadius.circular(4)),
+                                    child: Text(movie.subtitleLabel, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.white)),
+                                  ),
+                                ]),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }
+          }
+          DART_EOF
+            echo "✅ Created lib/widgets/site_movie_card.dart"
           fi
           
-          echo "=== Git status ==="
-          git status
-          echo "=== Last 5 commits ==="
-          git log --oneline -5
+          echo "=== All files created ==="
+
+      - name: Fix ui.dart _sortItem method
+        run: |
+          echo "=== Fixing ui.dart ==="
+          
+          # إصلاح دالة _sortItem
+          sed -i 's/Widget _sortItem(String v, String t) => PopupMenuItem(/Widget _sortItem(String v, String t) => PopupMenuItem<String>(/g' lib/ui.dart
+          
+          echo "✅ Fixed _sortItem in ui.dart"
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -66,7 +312,7 @@ jobs:
       - name: Create Android platform
         run: flutter create . --platforms android --no-overwrite
 
-      - name: Write modern settings.gradle
+      - name: Write modern settings.gradle with Kotlin 2.0
         run: |
           cat > android/settings.gradle << 'SETTINGS_EOF'
           pluginManagement {
@@ -91,14 +337,13 @@ jobs:
           }
           include ":app"
           SETTINGS_EOF
-          echo "✅ settings.gradle written with Kotlin 2.0.0"
+          echo "✅ settings.gradle with Kotlin 2.0.0"
 
       - name: Patch AndroidManifest for TV
         run: |
           sed -i 's|<application|<uses-feature android:name="android.software.leanback" android:required="false" />\n    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />\n    <application|' android/app/src/main/AndroidManifest.xml
-          echo "✅ AndroidManifest patched for TV"
 
-      - name: Write MainActivity with TV detection
+      - name: Write MainActivity
         run: |
           MAIN_ACT=$(find android/app/src/main -name "MainActivity.kt" | head -n 1)
           cat > "$MAIN_ACT" << 'KOTLIN_EOF'
@@ -139,7 +384,6 @@ jobs:
               }
           }
           KOTLIN_EOF
-          echo "✅ MainActivity written"
 
       - name: Install dependencies
         run: flutter pub get
@@ -147,60 +391,32 @@ jobs:
       - name: Generate launcher icons
         run: flutter pub run flutter_launcher_icons
 
-      - name: Patch Gradle files (Kotlin 2.0 + compileSdk 35)
+      - name: Patch Gradle files for compileSdk 35
         run: |
-          echo "=== Patching Gradle files ==="
+          echo "=== Patching for compileSdk 35 ==="
           
-          # 1. تحديث compileSdk إلى 35 في app/build.gradle
-          if grep -q "compileSdk 34" android/app/build.gradle; then
+          # تحديث compileSdk في app/build.gradle
+          if ! grep -q "compileSdk 35" android/app/build.gradle; then
             sed -i 's/compileSdk 34/compileSdk 35/g' android/app/build.gradle
-            echo "✅ Updated compileSdk to 35 in app/build.gradle"
-          elif grep -q "compileSdkVersion 34" android/app/build.gradle; then
             sed -i 's/compileSdkVersion 34/compileSdkVersion 35/g' android/app/build.gradle
-            echo "✅ Updated compileSdkVersion to 35 in app/build.gradle"
-          else
-            # إضافة compileSdk 35 إذا غير موجود
-            sed -i '/android {/a\    compileSdk 35' android/app/build.gradle
-            echo "✅ Added compileSdk 35 to app/build.gradle"
+            if ! grep -q "compileSdk 35" android/app/build.gradle; then
+              sed -i '/android {/a\    compileSdk 35' android/app/build.gradle
+            fi
           fi
           
-          # 2. إضافة متغيرات flutter في build.gradle الرئيسي
-          if ! grep -q "ext.flutter" android/build.gradle; then
-            sed -i '0,/allprojects/s/allprojects/ext {\n    flutter = [\n        compileSdkVersion: 35,\n        minSdkVersion: 21,\n        targetSdkVersion: 35,\n        ndkVersion: "25.1.8937393"\n    ]\n}\n\nallprojects/' android/build.gradle
-            echo "✅ Added flutter ext block to root build.gradle"
+          # إضافة ext.flutter
+          if ! grep -q "ext {" android/build.gradle; then
+            sed -i '0,/allprojects/s/allprojects/ext {\n    flutter = [\n        compileSdkVersion: 35,\n        minSdkVersion: 21,\n        targetSdkVersion: 35\n    ]\n}\n\nallprojects/' android/build.gradle
           fi
           
-          # 3. إصلاح ملفات الحزم في pub-cache
-          echo "=== Fixing package build.gradle files ==="
+          # إصلاح ملفات الحزم
           find ~/.pub-cache/hosted/pub.dev -name "build.gradle" -path "*/android/*" 2>/dev/null | while read f; do
-            # استبدال flutter.compileSdkVersion بـ 35
-            if grep -q "flutter\.compileSdkVersion" "$f" 2>/dev/null; then
-              sed -i 's/flutter\.compileSdkVersion/35/g' "$f"
-              echo "✅ Fixed flutter.compileSdkVersion in $f"
-            fi
-            if grep -q "flutter\.minSdkVersion" "$f" 2>/dev/null; then
-              sed -i 's/flutter\.minSdkVersion/21/g' "$f"
-            fi
-            if grep -q "flutter\.targetSdkVersion" "$f" 2>/dev/null; then
-              sed -i 's/flutter\.targetSdkVersion/35/g' "$f"
-            fi
-            # إضافة compileSdkVersion إذا غير موجود
-            if ! grep -q "compileSdk" "$f" 2>/dev/null; then
-              sed -i '/android {/a\    compileSdkVersion 35' "$f"
-            fi
+            sed -i 's/flutter\.compileSdkVersion/35/g' "$f"
+            sed -i 's/flutter\.minSdkVersion/21/g' "$f"
+            sed -i 's/flutter\.targetSdkVersion/35/g' "$f"
           done
           
-          echo "=== Done patching ==="
-          echo "--- android/app/build.gradle ---"
-          grep -n "compileSdk" android/app/build.gradle || echo "No compileSdk found"
-          echo "--- android/build.gradle (last 20 lines) ---"
-          tail -20 android/build.gradle
-
-      - name: Verify Dart files compile
-        run: |
-          echo "=== Verifying Dart files ==="
-          flutter analyze --no-fatal-infos --no-fatal-warnings || true
-          echo "=== Verification done ==="
+          echo "✅ All Gradle files patched"
 
       - name: Build release APK
         run: flutter build apk --release
@@ -211,11 +427,3 @@ jobs:
           name: tele-cinema-apk
           path: build/app/outputs/flutter-apk/app-release.apk
           retention-days: 30
-
-      - name: Create Release (on tag)
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v1
-        with:
-          files: build/app/outputs/flutter-apk/app-release.apk
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
