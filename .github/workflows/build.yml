@@ -10,8 +10,43 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout code (full history)
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: false
+
+      - name: Verify critical files exist
+        run: |
+          echo "=== Checking critical files ==="
+          ls -la lib/models/ || echo "models dir not found"
+          ls -la lib/services/ || echo "services dir not found"
+          ls -la lib/widgets/ || echo "widgets dir not found"
+          ls -la lib/screens/ || echo "screens dir not found"
+          
+          # Verify specific files
+          if [ ! -f "lib/models/site_movie.dart" ]; then
+            echo "❌ lib/models/site_movie.dart MISSING"
+          else
+            echo "✅ lib/models/site_movie.dart found"
+          fi
+          
+          if [ ! -f "lib/services/tmdb_service.dart" ]; then
+            echo "❌ lib/services/tmdb_service.dart MISSING"
+          else
+            echo "✅ lib/services/tmdb_service.dart found"
+          fi
+          
+          if [ ! -f "lib/widgets/site_movie_card.dart" ]; then
+            echo "❌ lib/widgets/site_movie_card.dart MISSING"
+          else
+            echo "✅ lib/widgets/site_movie_card.dart found"
+          fi
+          
+          echo "=== Git status ==="
+          git status
+          echo "=== Last 5 commits ==="
+          git log --oneline -5
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -52,16 +87,18 @@ jobs:
           plugins {
               id "dev.flutter.flutter-plugin-loader" version "1.0.0"
               id "com.android.application" version "8.1.0" apply false
-              id "org.jetbrains.kotlin.android" version "1.9.0" apply false
+              id "org.jetbrains.kotlin.android" version "2.0.0" apply false
           }
           include ":app"
           SETTINGS_EOF
+          echo "✅ settings.gradle written with Kotlin 2.0.0"
 
       - name: Patch AndroidManifest for TV
         run: |
           sed -i 's|<application|<uses-feature android:name="android.software.leanback" android:required="false" />\n    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />\n    <application|' android/app/src/main/AndroidManifest.xml
+          echo "✅ AndroidManifest patched for TV"
 
-      - name: Write MainActivity
+      - name: Write MainActivity with TV detection
         run: |
           MAIN_ACT=$(find android/app/src/main -name "MainActivity.kt" | head -n 1)
           cat > "$MAIN_ACT" << 'KOTLIN_EOF'
@@ -102,6 +139,7 @@ jobs:
               }
           }
           KOTLIN_EOF
+          echo "✅ MainActivity written"
 
       - name: Install dependencies
         run: flutter pub get
@@ -109,26 +147,75 @@ jobs:
       - name: Generate launcher icons
         run: flutter pub run flutter_launcher_icons
 
-      - name: Patch Gradle and Kotlin files
-  run: |
-    # 1. تحديث Kotlin version إلى 2.0.0
-    sed -i 's/org.jetbrains.kotlin.android" version "1.9.0"/org.jetbrains.kotlin.android" version "2.0.0"/g' android/settings.gradle
-    
-    # 2. تحديث compileSdk إلى 35
-    sed -i 's/compileSdk 34/compileSdk 35/g' android/app/build.gradle
-    sed -i 's/compileSdkVersion 34/compileSdkVersion 35/g' android/app/build.gradle
-    
-    # 3. إضافة compileSdk 35 للحزم
-    sed -i 's/compileSdkVersion 34/compileSdkVersion 35/g' android/build.gradle
-    
-    echo "✅ Updated Kotlin to 2.0.0 and compileSdk to 35"
+      - name: Patch Gradle files (Kotlin 2.0 + compileSdk 35)
+        run: |
+          echo "=== Patching Gradle files ==="
+          
+          # 1. تحديث compileSdk إلى 35 في app/build.gradle
+          if grep -q "compileSdk 34" android/app/build.gradle; then
+            sed -i 's/compileSdk 34/compileSdk 35/g' android/app/build.gradle
+            echo "✅ Updated compileSdk to 35 in app/build.gradle"
+          elif grep -q "compileSdkVersion 34" android/app/build.gradle; then
+            sed -i 's/compileSdkVersion 34/compileSdkVersion 35/g' android/app/build.gradle
+            echo "✅ Updated compileSdkVersion to 35 in app/build.gradle"
+          else
+            # إضافة compileSdk 35 إذا غير موجود
+            sed -i '/android {/a\    compileSdk 35' android/app/build.gradle
+            echo "✅ Added compileSdk 35 to app/build.gradle"
+          fi
+          
+          # 2. إضافة متغيرات flutter في build.gradle الرئيسي
+          if ! grep -q "ext.flutter" android/build.gradle; then
+            sed -i '0,/allprojects/s/allprojects/ext {\n    flutter = [\n        compileSdkVersion: 35,\n        minSdkVersion: 21,\n        targetSdkVersion: 35,\n        ndkVersion: "25.1.8937393"\n    ]\n}\n\nallprojects/' android/build.gradle
+            echo "✅ Added flutter ext block to root build.gradle"
+          fi
+          
+          # 3. إصلاح ملفات الحزم في pub-cache
+          echo "=== Fixing package build.gradle files ==="
+          find ~/.pub-cache/hosted/pub.dev -name "build.gradle" -path "*/android/*" 2>/dev/null | while read f; do
+            # استبدال flutter.compileSdkVersion بـ 35
+            if grep -q "flutter\.compileSdkVersion" "$f" 2>/dev/null; then
+              sed -i 's/flutter\.compileSdkVersion/35/g' "$f"
+              echo "✅ Fixed flutter.compileSdkVersion in $f"
+            fi
+            if grep -q "flutter\.minSdkVersion" "$f" 2>/dev/null; then
+              sed -i 's/flutter\.minSdkVersion/21/g' "$f"
+            fi
+            if grep -q "flutter\.targetSdkVersion" "$f" 2>/dev/null; then
+              sed -i 's/flutter\.targetSdkVersion/35/g' "$f"
+            fi
+            # إضافة compileSdkVersion إذا غير موجود
+            if ! grep -q "compileSdk" "$f" 2>/dev/null; then
+              sed -i '/android {/a\    compileSdkVersion 35' "$f"
+            fi
+          done
+          
+          echo "=== Done patching ==="
+          echo "--- android/app/build.gradle ---"
+          grep -n "compileSdk" android/app/build.gradle || echo "No compileSdk found"
+          echo "--- android/build.gradle (last 20 lines) ---"
+          tail -20 android/build.gradle
+
+      - name: Verify Dart files compile
+        run: |
+          echo "=== Verifying Dart files ==="
+          flutter analyze --no-fatal-infos --no-fatal-warnings || true
+          echo "=== Verification done ==="
 
       - name: Build release APK
         run: flutter build apk --release
 
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: tele-cinema-apk
           path: build/app/outputs/flutter-apk/app-release.apk
           retention-days: 30
+
+      - name: Create Release (on tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: build/app/outputs/flutter-apk/app-release.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
