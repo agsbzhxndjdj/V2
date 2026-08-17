@@ -28,25 +28,19 @@ jobs:
       - name: Disable analytics
         run: flutter config --no-analytics
 
-      - name: Fix pubspec.yaml completely
+      - name: Fix pubspec.yaml
         run: |
           python3 << 'PYEOF'
           import re
-          
           with open('pubspec.yaml', 'r', encoding='utf-8') as f:
               content = f.read()
           
-          # 1. إزالة قسم fonts (المجلد غير موجود)
+          # إزالة قسم fonts (المجلد غير موجود)
           content = re.sub(r'\n\s*fonts:.*?(?=\n\n|\Z)', '', content, flags=re.DOTALL)
           
-          # 2. تحديث الحزم القديمة
-          content = content.replace('wakelock_plus: ^1.1.0', 'wakelock_plus: ^1.2.8')
-          content = content.replace('connectivity_plus: ^5.0.0', 'connectivity_plus: ^6.1.0')
-          content = content.replace('path_provider: ^2.1.0', 'path_provider: ^2.1.0')
-          
-          # 3. إضافة dependency_overrides في النهاية
-          if 'dependency_overrides:' not in content:
-              content += '''
+          # إضافة dependency_overrides
+          content = re.sub(r'\ndependency_overrides:.*', '', content, flags=re.DOTALL)
+          content += '''
 
           dependency_overrides:
             path_provider: 2.1.4
@@ -59,20 +53,11 @@ jobs:
           
           with open('pubspec.yaml', 'w', encoding='utf-8') as f:
               f.write(content)
-          
-          print("✅ Fixed pubspec.yaml:")
-          print("  - Removed fonts section (folder missing)")
-          print("  - Updated wakelock_plus to 1.2.8")
-          print("  - Updated connectivity_plus to 6.1.0")
-          print("  - Added dependency_overrides with path_provider 2.1.4")
+          print("pubspec fixed")
           PYEOF
-          
-          echo "=== pubspec.yaml after fix ==="
-          cat pubspec.yaml
 
-      - name: Create missing files
+      - name: Create missing Dart files
         run: |
-          set -e
           mkdir -p lib/models lib/services lib/screens lib/widgets
           
           # site_movie.dart
@@ -110,7 +95,6 @@ jobs:
           }
           EOF
 
-          # tmdb_service.dart
           cat > lib/services/tmdb_service.dart << 'EOF'
           import 'package:dio/dio.dart';
           import '../models/site_movie.dart';
@@ -138,7 +122,6 @@ jobs:
           }
           EOF
 
-          # subtitle_service.dart
           cat > lib/services/subtitle_service.dart << 'EOF'
           class SubtitleService {
             static Future<bool> hasSubtitle({required String title, int? tmdbId}) async => false;
@@ -147,7 +130,6 @@ jobs:
           }
           EOF
 
-          # plex_service.dart
           cat > lib/services/plex_service.dart << 'EOF'
           import '../models/site_movie.dart';
           class PlexService {
@@ -156,7 +138,6 @@ jobs:
           }
           EOF
 
-          # roku_service.dart
           cat > lib/services/roku_service.dart << 'EOF'
           import '../models/site_movie.dart';
           class RokuService {
@@ -165,7 +146,6 @@ jobs:
           }
           EOF
 
-          # crackle_service.dart
           cat > lib/services/crackle_service.dart << 'EOF'
           import '../models/site_movie.dart';
           class CrackleService {
@@ -174,7 +154,6 @@ jobs:
           }
           EOF
 
-          # sites_manager.dart
           cat > lib/services/sites_manager.dart << 'EOF'
           import '../models/site_movie.dart';
           import 'plex_service.dart';
@@ -214,7 +193,6 @@ jobs:
           }
           EOF
 
-          # sites_home_screen.dart
           cat > lib/screens/sites_home_screen.dart << 'EOF'
           import 'package:flutter/material.dart';
           import '../models/site_movie.dart';
@@ -289,7 +267,6 @@ jobs:
           }
           EOF
 
-          # player_screen.dart
           cat > lib/screens/player_screen.dart << 'EOF'
           import 'package:flutter/material.dart';
           import 'package:video_player/video_player.dart';
@@ -327,7 +304,6 @@ jobs:
           }
           EOF
 
-          # site_movie_card.dart
           cat > lib/widgets/site_movie_card.dart << 'EOF'
           import 'package:flutter/material.dart';
           import 'package:cached_network_image/cached_network_image.dart';
@@ -372,44 +348,58 @@ jobs:
           }
           EOF
 
-          echo "✅ All files verified/created"
+          echo "All files created"
 
-      - name: Fix syntax issues
+      - name: Fix ui.dart syntax
         run: |
           sed -i 's/]));;/]));/g' lib/ui.dart 2>/dev/null || true
           sed -i 's/Widget _sortItem/PopupMenuItem<String> _sortItem/g' lib/ui.dart 2>/dev/null || true
           sed -i 's/=> PopupMenuItem(/=> PopupMenuItem<String>(/g' lib/ui.dart 2>/dev/null || true
-          echo "✅ Syntax fixed"
+          echo "syntax fixed"
 
+      # ✅ حذف أي مجلد android موجود لضمان إنشاء نظيف
+      - name: Clean Android folder
+        run: |
+          rm -rf android
+          echo "android folder removed for fresh creation"
+
+      # ✅ إنشاء Android من الصفر (سيستخدم إعدادات Flutter الافتراضية الصحيحة)
       - name: Create Android platform
-        run: flutter create . --platforms android --no-overwrite
+        run: flutter create . --platforms android
 
-      - name: Set NDK and compileSdk
+      # ✅ تعديل app/build.gradle فقط (compileSdk و ndkVersion)
+      - name: Patch app build.gradle
         run: |
           python3 << 'PYEOF'
           import re
-          with open('android/app/build.gradle', 'r') as f:
+          with open('android/app/build.gradle.kts', 'r') as f:
               content = f.read()
           
-          # حذف الإعدادات القديمة
-          content = re.sub(r'\s*ndkVersion\s+"[^"]+"\s*', '\n', content)
-          content = re.sub(r'\s*ndkVersion\s+flutter\.ndkVersion\s*', '\n', content)
-          content = re.sub(r'\s*compileSdk\s+\d+\s*', '\n', content)
-          content = re.sub(r'\s*compileSdkVersion\s+\d+\s*', '\n', content)
+          # البحث عن compileSdk وتغييره
+          if 'compileSdk = ' in content:
+              content = re.sub(r'compileSdk = \d+', 'compileSdk = 35', content)
+          elif 'compileSdk ' in content:
+              content = re.sub(r'compileSdk \d+', 'compileSdk 35', content)
           
-          # إضافة الإعدادات الجديدة
-          content = re.sub(
-              r'android\s*{',
-              'android {\n    compileSdk 35\n    ndkVersion "27.0.12077973"\n',
-              content
-          )
+          # البحث عن ndkVersion وتغييره
+          if 'ndkVersion = ' in content:
+              content = re.sub(r'ndkVersion = "[^"]+"', 'ndkVersion = "27.0.12077973"', content)
+          elif 'ndkVersion ' in content:
+              content = re.sub(r'ndkVersion "[^"]+"', 'ndkVersion "27.0.12077973"', content)
           
-          with open('android/app/build.gradle', 'w') as f:
+          with open('android/app/build.gradle.kts', 'w') as f:
               f.write(content)
-          print("✅ Set compileSdk 35 and ndkVersion 27.0.12077973")
+          print("Patched build.gradle.kts")
+          
+          # طباعة محتوى الملف للتحقق
+          with open('android/app/build.gradle.kts', 'r') as f:
+              c = f.read()
+              for line in c.split('\n'):
+                  if 'compileSdk' in line or 'ndkVersion' in line:
+                      print(line)
           PYEOF
 
-      - name: Patch AndroidManifest
+      - name: Patch AndroidManifest for TV
         run: |
           sed -i 's|<application|<uses-feature android:name="android.software.leanback" android:required="false" />\n    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />\n    <application|' android/app/src/main/AndroidManifest.xml
 
