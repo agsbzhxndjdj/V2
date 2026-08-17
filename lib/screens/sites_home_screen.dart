@@ -3,6 +3,7 @@ import '../models/site_movie.dart';
 import '../services/sites_manager.dart';
 import '../widgets/site_movie_card.dart';
 import '../core.dart';
+import '../lang.dart';  // ← أضف هذا السطر
 
 class SitesHomeScreen extends StatefulWidget {
   const SitesHomeScreen({super.key});
