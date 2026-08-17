@@ -27,7 +27,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void initState() {
     super.initState();
-    WakelockPlus.enable();
+    Wakelock.enable();
     _initPlayer();
     _loadSubtitle();
   }
@@ -249,7 +249,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   void dispose() {
-    WakelockPlus.disable();
+    Wakelock.disable();
     _videoController?.dispose();
     super.dispose();
   }
