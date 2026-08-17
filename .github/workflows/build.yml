@@ -56,14 +56,12 @@ jobs:
           }
           include ":app"
           SETTINGS_EOF
-          echo "settings.gradle written"
 
       - name: Patch AndroidManifest for TV
         run: |
           sed -i 's|<application|<uses-feature android:name="android.software.leanback" android:required="false" />\n    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />\n    <application|' android/app/src/main/AndroidManifest.xml
-          echo "AndroidManifest patched"
 
-      - name: Write MainActivity with TV detection
+      - name: Write MainActivity
         run: |
           MAIN_ACT=$(find android/app/src/main -name "MainActivity.kt" | head -n 1)
           cat > "$MAIN_ACT" << 'KOTLIN_EOF'
@@ -104,7 +102,6 @@ jobs:
               }
           }
           KOTLIN_EOF
-          echo "MainActivity written"
 
       - name: Install dependencies
         run: flutter pub get
@@ -112,33 +109,35 @@ jobs:
       - name: Generate launcher icons
         run: flutter pub run flutter_launcher_icons
 
-      - name: Patch root build.gradle for old plugins
+      - name: Patch Gradle files for plugin compatibility
         run: |
-          cat >> android/build.gradle << 'GRADLE_EOF'
-
-          ext {
-              flutter = [
-                  compileSdkVersion: 34,
-                  minSdkVersion: 21,
-                  targetSdkVersion: 34,
-                  ndkVersion: "25.1.8937393"
-              ]
-          }
-
-          subprojects {
-              afterEvaluate { project ->
-                  if (project.hasProperty('android')) {
-                      project.android {
-                          if (namespace == null) {
-                              namespace project.group.toString()
-                          }
-                          compileSdkVersion 34
-                      }
-                  }
-              }
-          }
-          GRADLE_EOF
-          echo "build.gradle patched"
+          # إضافة متغيرات flutter في build.gradle الرئيسي قبل allprojects
+          if ! grep -q "ext.flutter" android/build.gradle; then
+            sed -i '0,/allprojects/s/allprojects/ext {\n    flutter = [\n        compileSdkVersion: 34,\n        minSdkVersion: 21,\n        targetSdkVersion: 34,\n        ndkVersion: "25.1.8937393"\n    ]\n}\n\nallprojects/' android/build.gradle
+            echo "✅ Added flutter ext block"
+          fi
+          
+          # تعديل ملفات build.gradle للحزم المشكلة مباشرة
+          find ~/.pub-cache/hosted/pub.dev -name "build.gradle" -path "*/android/*" 2>/dev/null | while read f; do
+            if grep -q "flutter.compileSdkVersion\|flutter\.compileSdkVersion" "$f" 2>/dev/null; then
+              sed -i 's/flutter\.compileSdkVersion/34/g' "$f"
+              echo "✅ Fixed: $f"
+            fi
+            if grep -q "flutter.minSdkVersion\|flutter\.minSdkVersion" "$f" 2>/dev/null; then
+              sed -i 's/flutter\.minSdkVersion/21/g' "$f"
+            fi
+            if grep -q "flutter.targetSdkVersion\|flutter\.targetSdkVersion" "$f" 2>/dev/null; then
+              sed -i 's/flutter\.targetSdkVersion/34/g' "$f"
+            fi
+          done
+          
+          # إضافة compileSdk 34 لملف app/build.gradle
+          if ! grep -q "compileSdk 34" android/app/build.gradle; then
+            sed -i '/android {/a\    compileSdk 34' android/app/build.gradle
+            echo "✅ Added compileSdk 34 to app"
+          fi
+          
+          echo "=== Done patching ==="
 
       - name: Build release APK
         run: flutter build apk --release
