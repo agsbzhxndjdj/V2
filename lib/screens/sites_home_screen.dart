@@ -1,9 +1,8 @@
-// lib/screens/sites_home_screen.dart
-
 import 'package:flutter/material.dart';
 import '../models/site_movie.dart';
 import '../services/sites_manager.dart';
 import '../widgets/site_movie_card.dart';
+import '../core.dart';
 
 class SitesHomeScreen extends StatefulWidget {
   const SitesHomeScreen({super.key});
@@ -87,7 +86,9 @@ class _SitesHomeScreenState extends State<SitesHomeScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _selectedSite == 'all' ? _loadMovies : () => _loadSiteMovies(_selectedSite),
+            onPressed: _selectedSite == 'all' 
+                ? _loadMovies 
+                : () => _loadSiteMovies(_selectedSite),
           ),
         ],
       ),
@@ -164,12 +165,12 @@ class _SitesHomeScreenState extends State<SitesHomeScreen> {
           padding: const EdgeInsets.symmetric(vertical: 12),
           decoration: BoxDecoration(
             color: isSelected 
-                ? const Color(0xFFFFC107) 
+                ? AppTheme.accent 
                 : const Color(0xFF1B2430),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
               color: isSelected 
-                  ? const Color(0xFFFFC107) 
+                  ? AppTheme.accent 
                   : Colors.transparent,
               width: 2,
             ),
@@ -203,7 +204,7 @@ class _SitesHomeScreenState extends State<SitesHomeScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            Icons.movie_off,
+            Icons.movie_filter,
             size: 80,
             color: Colors.grey.shade700,
           ),
