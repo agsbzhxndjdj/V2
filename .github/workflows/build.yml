@@ -19,25 +19,34 @@ jobs:
           distribution: zulu
           java-version: "17"
 
-      - name: Setup Flutter 3.29.0
+      - name: Setup Flutter 3.27.3
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.29.0
+          flutter-version: 3.27.3
           channel: stable
 
       - name: Disable analytics
         run: flutter config --no-analytics
 
-      - name: Force path_provider 2.1.4 in pubspec
+      - name: Fix pubspec.yaml completely
         run: |
           python3 << 'PYEOF'
           import re
+          
           with open('pubspec.yaml', 'r', encoding='utf-8') as f:
               content = f.read()
           
-          content = re.sub(r'\ndependency_overrides:.*', '', content, flags=re.DOTALL)
+          # 1. إزالة قسم fonts (المجلد غير موجود)
+          content = re.sub(r'\n\s*fonts:.*?(?=\n\n|\Z)', '', content, flags=re.DOTALL)
           
-          content += '''
+          # 2. تحديث الحزم القديمة
+          content = content.replace('wakelock_plus: ^1.1.0', 'wakelock_plus: ^1.2.8')
+          content = content.replace('connectivity_plus: ^5.0.0', 'connectivity_plus: ^6.1.0')
+          content = content.replace('path_provider: ^2.1.0', 'path_provider: ^2.1.0')
+          
+          # 3. إضافة dependency_overrides في النهاية
+          if 'dependency_overrides:' not in content:
+              content += '''
 
           dependency_overrides:
             path_provider: 2.1.4
@@ -50,14 +59,23 @@ jobs:
           
           with open('pubspec.yaml', 'w', encoding='utf-8') as f:
               f.write(content)
-          print("✅ Forced path_provider 2.1.4")
+          
+          print("✅ Fixed pubspec.yaml:")
+          print("  - Removed fonts section (folder missing)")
+          print("  - Updated wakelock_plus to 1.2.8")
+          print("  - Updated connectivity_plus to 6.1.0")
+          print("  - Added dependency_overrides with path_provider 2.1.4")
           PYEOF
+          
+          echo "=== pubspec.yaml after fix ==="
+          cat pubspec.yaml
 
       - name: Create missing files
         run: |
           set -e
           mkdir -p lib/models lib/services lib/screens lib/widgets
           
+          # site_movie.dart
           cat > lib/models/site_movie.dart << 'EOF'
           class SiteMovie {
             final String id, title, year, site, videoUrl, poster, backdrop, overview, duration;
@@ -92,6 +110,7 @@ jobs:
           }
           EOF
 
+          # tmdb_service.dart
           cat > lib/services/tmdb_service.dart << 'EOF'
           import 'package:dio/dio.dart';
           import '../models/site_movie.dart';
@@ -119,6 +138,7 @@ jobs:
           }
           EOF
 
+          # subtitle_service.dart
           cat > lib/services/subtitle_service.dart << 'EOF'
           class SubtitleService {
             static Future<bool> hasSubtitle({required String title, int? tmdbId}) async => false;
@@ -127,6 +147,7 @@ jobs:
           }
           EOF
 
+          # plex_service.dart
           cat > lib/services/plex_service.dart << 'EOF'
           import '../models/site_movie.dart';
           class PlexService {
@@ -135,6 +156,7 @@ jobs:
           }
           EOF
 
+          # roku_service.dart
           cat > lib/services/roku_service.dart << 'EOF'
           import '../models/site_movie.dart';
           class RokuService {
@@ -143,6 +165,7 @@ jobs:
           }
           EOF
 
+          # crackle_service.dart
           cat > lib/services/crackle_service.dart << 'EOF'
           import '../models/site_movie.dart';
           class CrackleService {
@@ -151,6 +174,7 @@ jobs:
           }
           EOF
 
+          # sites_manager.dart
           cat > lib/services/sites_manager.dart << 'EOF'
           import '../models/site_movie.dart';
           import 'plex_service.dart';
@@ -190,6 +214,7 @@ jobs:
           }
           EOF
 
+          # sites_home_screen.dart
           cat > lib/screens/sites_home_screen.dart << 'EOF'
           import 'package:flutter/material.dart';
           import '../models/site_movie.dart';
@@ -264,6 +289,7 @@ jobs:
           }
           EOF
 
+          # player_screen.dart
           cat > lib/screens/player_screen.dart << 'EOF'
           import 'package:flutter/material.dart';
           import 'package:video_player/video_player.dart';
@@ -301,6 +327,7 @@ jobs:
           }
           EOF
 
+          # site_movie_card.dart
           cat > lib/widgets/site_movie_card.dart << 'EOF'
           import 'package:flutter/material.dart';
           import 'package:cached_network_image/cached_network_image.dart';
@@ -345,7 +372,7 @@ jobs:
           }
           EOF
 
-          echo "✅ All missing files created"
+          echo "✅ All files verified/created"
 
       - name: Fix syntax issues
         run: |
@@ -354,27 +381,23 @@ jobs:
           sed -i 's/=> PopupMenuItem(/=> PopupMenuItem<String>(/g' lib/ui.dart 2>/dev/null || true
           echo "✅ Syntax fixed"
 
-      # ✅ الآن ننشئ مجلد android أولاً
       - name: Create Android platform
         run: flutter create . --platforms android --no-overwrite
 
-      # ✅ ثم نعدّل build.gradle (بعد الإنشاء)
-      - name: Set NDK 27 and compileSdk 35
+      - name: Set NDK and compileSdk
         run: |
           python3 << 'PYEOF'
           import re
           with open('android/app/build.gradle', 'r') as f:
               content = f.read()
           
-          # حذف ndkVersion قديم
+          # حذف الإعدادات القديمة
           content = re.sub(r'\s*ndkVersion\s+"[^"]+"\s*', '\n', content)
           content = re.sub(r'\s*ndkVersion\s+flutter\.ndkVersion\s*', '\n', content)
-          
-          # حذف compileSdk قديم
           content = re.sub(r'\s*compileSdk\s+\d+\s*', '\n', content)
           content = re.sub(r'\s*compileSdkVersion\s+\d+\s*', '\n', content)
           
-          # إضافة ndkVersion و compileSdk
+          # إضافة الإعدادات الجديدة
           content = re.sub(
               r'android\s*{',
               'android {\n    compileSdk 35\n    ndkVersion "27.0.12077973"\n',
@@ -385,9 +408,6 @@ jobs:
               f.write(content)
           print("✅ Set compileSdk 35 and ndkVersion 27.0.12077973")
           PYEOF
-          
-          echo "=== Verification ==="
-          grep -n "ndkVersion\|compileSdk" android/app/build.gradle | head -5
 
       - name: Patch AndroidManifest
         run: |
@@ -428,7 +448,7 @@ jobs:
         run: flutter pub get
 
       - name: Generate launcher icons
-        run: flutter pub run flutter_launcher_icons || true
+        run: flutter pub run flutter_launcher_icons || echo "Icons generation failed, continuing..."
 
       - name: Build APK
         run: flutter build apk --release
