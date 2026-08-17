@@ -2,7 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
-import 'package:wakelock/wakelock.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import '../models/site_movie.dart';
 import '../services/subtitle_service.dart';
 
@@ -27,7 +27,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void initState() {
     super.initState();
-    Wakelock.enable();
+    WakelockPlus.enable();
     _initPlayer();
     _loadSubtitle();
   }
@@ -249,7 +249,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   void dispose() {
-    Wakelock.disable();
+    WakelockPlus.disable();
     _videoController?.dispose();
     super.dispose();
   }
