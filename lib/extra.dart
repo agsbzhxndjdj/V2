@@ -3,7 +3,10 @@ import 'core.dart';
 import 'lang.dart';
 import 'features.dart';
 import 'auth.dart';
-
+import 'dart:convert';
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
+import 'tv.dart';
 /* ======== صفحة الإعدادات ======== */
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
@@ -343,4 +346,23 @@ class SettingsPage extends StatelessWidget {
       ),
     );
   }
+  class StatsPage extends StatelessWidget {
+  const StatsPage({super.key});
+  @override
+  Widget build(BuildContext context) {
+    final stats = Store.stats();
+    final hours = ((stats['seconds'] as int?) ?? 0) / 3600;
+    final count = (stats['count'] as int?) ?? 0;
+    return Scaffold(
+      appBar: AppBar(title: Text(Lang.t('stats'))),
+      body: ListView(padding: const EdgeInsets.all(16), children: [
+        Card(color: const Color(0xFF151B23), child: ListTile(
+          leading: const Icon(Icons.access_time, color: Color(0xFFFFC107)),
+          title: Text('${hours.toStringAsFixed(1)} ${Lang.t('hoursWatched')}'),
+          subtitle: Text('$count ${Lang.t('moviesWatched')}'),
+        )),
+      ]),
+    );
+  }
+  
 }
