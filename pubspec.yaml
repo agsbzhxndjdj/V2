@@ -42,6 +42,9 @@ dev_dependencies:
   flutter_lints: ^3.0.0
   hive_generator: ^2.0.0
   build_runner: ^2.4.0
+  
+  # ✅ أضف هذا السطر
+  flutter_launcher_icons: ^0.13.1
 
 flutter:
   uses-material-design: true
@@ -56,3 +59,11 @@ flutter:
         - asset: fonts/Cairo-Regular.ttf
         - asset: fonts/Cairo-Bold.ttf
           weight: 700
+
+# ✅ إعدادات الأيقونات
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/iconic.png"
+  adaptive_icon_background: "#0B0F14"
+  adaptive_icon_foreground: "assets/iconic.png"
