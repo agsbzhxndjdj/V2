@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:hive/hive.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -435,7 +436,7 @@ class Store {
     return diff > (24 * 60 * 60 * 1000);
   }
 
-  /* ---- الحسابات المتعددة 👥 (42) ---- */
+  /* ---- الحسابات المتعددة 👥 ---- */
   static String _pk(String k) => '${k}_${getString('profile', 'الرئيسي')}';
 
   /* ---- المفضلة ---- */
@@ -533,7 +534,7 @@ class Store {
     tick.value++;
   }
 
-  /* ---- التثبيت 📌 (19) ---- */
+  /* ---- التثبيت 📌 ---- */
   static List<String> pinned() => List<String>.from(prefs()['pinned'] ?? []);
   static bool isPinned(String id) => pinned().contains(id);
   static Future togglePin(String id) async {
@@ -546,7 +547,7 @@ class Store {
     await setPref('pinned', l);
   }
 
-  /* ---- القبو السري 📦 (43) ---- */
+  /* ---- القبو السري 📦 ---- */
   static List<String> vaultMovies() => List<String>.from(prefs()['vaultMovies'] ?? []);
   static List<String> vaultChannels() => List<String>.from(prefs()['vaultChannels'] ?? []);
   static Future toggleVaultMovie(String id) async {
@@ -995,7 +996,7 @@ class Smart {
   }
 }
 
-/* ======== الفرز (مع فرز عربي ذكي 18) ======== */
+/* ======== الفرز (مع فرز عربي ذكي) ======== */
 class Sorter {
   static List<Movie> apply(List<Movie> src, String mode) {
     final l = List<Movie>.from(src);
@@ -1043,7 +1044,3 @@ class Sorter {
     return l;
   }
 }
-
-        ),
-      ),
-    );
