@@ -1044,51 +1044,6 @@ class Sorter {
   }
 }
 
-/* ======== الثيمات ======== */
-class AppTheme {
-  static Color get accent => const Color(0xFFFFC107);
-
-  static ThemeData build(String name) {
-    Color primary;
-    switch (name) {
-      case 'blue':
-        primary = const Color(0xFF2196F3);
-        break;
-      case 'red':
-        primary = const Color(0xFFE53935);
-        break;
-      case 'green':
-        primary = const Color(0xFF4CAF50);
-        break;
-      case 'purple':
-        primary = const Color(0xFF9C27B0);
-        break;
-      default:
-        primary = const Color(0xFFFFC107);
-    }
-
-    return ThemeData(
-      useMaterial3: true,
-      brightness: Brightness.dark,
-      primaryColor: primary,
-      scaffoldBackgroundColor: const Color(0xFF0B0F14),
-      colorScheme: ColorScheme.dark(
-        primary: primary,
-        secondary: primary,
-        surface: const Color(0xFF151B23),
-      ),
-      appBarTheme: const AppBarTheme(
-        backgroundColor: Color(0xFF0B0F14),
-        elevation: 0,
-        centerTitle: true,
-      ),
-      cardTheme: CardTheme(
-        color: const Color(0xFF151B23),
-        elevation: 2,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
         ),
       ),
     );
-  }
-}
