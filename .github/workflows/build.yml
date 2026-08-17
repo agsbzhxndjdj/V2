@@ -3,141 +3,174 @@ name: Build Android APK
 on:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
+    
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '17'
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'zulu'
+        java-version: '17'
 
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.24.3'
-          channel: 'stable'
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.24.3'
+        channel: 'stable'
+        cache: true
 
-      - name: Generate android folder
-        run: flutter create . --platforms android --no-overwrite
+    - name: Disable Flutter analytics
+      run: flutter config --no-analytics
 
-      - name: Inject keystore + google-services
-        run: |
-          if [ -f KEYSTORE_B64 ]; then base64 -d -i KEYSTORE_B64 > android/app/telecinema.keystore; echo "keystore decoded OK"; fi
-          if [ -f telecinema.keystore ]; then cp telecinema.keystore android/app/telecinema.keystore; echo "keystore copied OK"; fi
-          if [ -f google-services.json ]; then cp google-services.json android/app/google-services.json; echo "google-services copied OK"; fi
-          ls -la android/app/ | head -20
+    - name: Fix project name
+      run: sed -i 's/^name: V2/name: killlk/' pubspec.yaml || true
 
-      - name: Patch gradle (google-services + signing)
-        run: |
-          python3 - << 'PYEOF'
-          import re
+    - name: Flutter create Android platform
+      run: flutter create . --platforms android --no-overwrite
 
-          # 1) settings.gradle: إضافة google-services في plugins block
-          p = 'android/settings.gradle'
-          s = open(p).read()
-          if 'google-services' not in s:
-              m = re.search(r'plugins\s*\{[^}]*\}', s)
-              if m:
-                  old = m.group(0)
-                  new = old[:-1] + '\n    id "com.google.gms.google-services" version "4.4.0" apply false\n}'
-                  s = s.replace(old, new)
-                  open(p, 'w').write(s)
-                  print('settings.gradle patched')
+    - name: Patch settings.gradle
+      run: |
+        cat > android/settings.gradle << 'EOF'
+        pluginManagement {
+            def flutterSdkPath = {
+                def properties = new Properties()
+                file("local.properties").withInputStream { properties.load(it) }
+                def flutterSdkPath = properties.getProperty("flutter.sdk")
+                assert flutterSdkPath != null, "flutter.sdk not set in local.properties"
+                return flutterSdkPath
+            }()
 
-          # 2) app/build.gradle: تفعيل google-services + توقيع release
-          p = 'android/app/build.gradle'
-          s = open(p).read()
-          if 'com.google.gms.google-services' not in s:
-              m = re.search(r'plugins\s*\{[^}]*\}', s)
-              if m:
-                  old = m.group(0)
-                  new = old[:-1] + '\n    id "com.google.gms.google-services"\n}'
-                  s = s.replace(old, new)
-          sig = """    signingConfigs {
-              release {
-                  storeFile file('telecinema.keystore')
-                  storePassword '12345678'
-                  keyAlias 'telecinema'
-                  keyPassword '12345678'
-              }
-          }
-          """
-          if 'signingConfigs' not in s:
-              s = s.replace('    buildTypes {', sig + '\n    buildTypes {', 1)
-          s = s.replace('signingConfig signingConfigs.debug', 'signingConfig signingConfigs.release')
-          open(p, 'w').write(s)
-          print('GRADLE PATCHED')
-          PYEOF
+            includeBuild("$flutterSdkPath/packages/flutter_tools/gradle")
 
-      - name: Patch AndroidManifest (HTTP + الاسم + Android TV + الإشعارات)
-        run: |
-          sed -i 's|<application|<uses-feature android:name="android.software.leanback" android:required="false" />\n    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />\n    <application|' android/app/src/main/AndroidManifest.xml
-          sed -i 's/<application/<application android:usesCleartextTraffic="true"/' android/app/src/main/AndroidManifest.xml
-          sed -i 's/android:label="[^"]*"/android:label="تلي سينما"/' android/app/src/main/AndroidManifest.xml
-          sed -i 's|<category android:name="android.intent.category.LAUNCHER"/>|<category android:name="android.intent.category.LAUNCHER"/>\n                <category android:name="android.intent.category.LEANBACK_LAUNCHER"/>|' android/app/src/main/AndroidManifest.xml
-          sed -i 's|<uses-permission android:name="android.permission.INTERNET"/>|<uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>|' android/app/src/main/AndroidManifest.xml
-          grep -n "usesCleartextTraffic\|LEANBACK\|POST_NOTIFICATIONS" android/app/src/main/AndroidManifest.xml
+            repositories {
+                google()
+                mavenCentral()
+                gradlePluginPortal()
+            }
+        }
 
-      - name: Patch MainActivity (كشف TV + تشغيل خارجي Cast)
-        run: |
-          MAIN_ACT=$(find android/app/src/main -name "MainActivity.kt" | head -n 1)
-          PKG=$(head -n 1 "$MAIN_ACT")
-          {
-            echo "$PKG"
-            echo ''
-            echo 'import android.content.pm.PackageManager'
-            echo 'import io.flutter.embedding.android.FlutterActivity'
-            echo 'import io.flutter.embedding.engine.FlutterEngine'
-            echo 'import io.flutter.plugin.common.MethodChannel'
-            echo ''
-            echo 'class MainActivity : FlutterActivity() {'
-            echo '    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {'
-            echo '        super.configureFlutterEngine(flutterEngine)'
-            echo '        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "tele_cinema/device")'
-            echo '            .setMethodCallHandler { call, result ->'
-            echo '                if (call.method == "isTv") {'
-            echo '                    val pm = packageManager'
-            echo '                    result.success('
-            echo '                        pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||'
-            echo '                            pm.hasSystemFeature(PackageManager.FEATURE_TELEVISION)'
-            echo '                    )'
-            echo '                } else if (call.method == "openExternal") {'
-            echo '                    val url = call.argument<String>("url")'
-            echo '                    if (url == null) { result.success(false); return@setMethodCallHandler }'
-            echo '                    val uri = android.net.Uri.parse(url)'
-            echo '                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, uri)'
-            echo '                    intent.setDataAndType(uri, "video/*")'
-            echo '                    try {'
-            echo '                        startActivity(android.content.Intent.createChooser(intent, "تشغيل بواسطة"))'
-            echo '                        result.success(true)'
-            echo '                    } catch (e: Exception) {'
-            echo '                        result.success(false)'
-            echo '                    }'
-            echo '                } else {'
-            echo '                    result.notImplemented()'
-            echo '                }'
-            echo '            }'
-            echo '    }'
-            echo '}'
-          } > "$MAIN_ACT"
-          cat "$MAIN_ACT"
+        plugins {
+            id "dev.flutter.flutter-plugin-loader" version "1.0.0"
+            id "com.android.application" version "8.1.0" apply false
+            id "org.jetbrains.kotlin.android" version "1.9.0" apply false
+        }
 
-      - name: البناء
-        run: |
-          flutter pub get
-          flutter pub run flutter_launcher_icons:main
-          flutter build apk --release
+        include ":app"
+        EOF
+        echo "✅ settings.gradle patched"
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: tele-cinema-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+    - name: Patch AndroidManifest for TV support
+      run: |
+        sed -i 's|<application|<uses-feature android:name="android.software.leanback" android:required="false" />\n    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />\n    <application|' android/app/src/main/AndroidManifest.xml
+        grep -n "application" android/app/src/main/AndroidManifest.xml | head -5
+
+    - name: Create MainActivity with TV detection
+      run: |
+        MAIN_ACT=$(find android/app/src/main -name "MainActivity.kt" | head -n 1)
+        cat > "$MAIN_ACT" << 'EOF'
+        package com.example.killlk
+
+        import android.content.pm.PackageManager
+        import io.flutter.embedding.android.FlutterActivity
+        import io.flutter.embedding.engine.FlutterEngine
+        import io.flutter.plugin.common.MethodChannel
+
+        class MainActivity : FlutterActivity() {
+            override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+                super.configureFlutterEngine(flutterEngine)
+                MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "tele_cinema/device")
+                    .setMethodCallHandler { call, result ->
+                        if (call.method == "isTv") {
+                            val pm = packageManager
+                            result.success(
+                                pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
+                                    pm.hasSystemFeature(PackageManager.FEATURE_TELEVISION)
+                            )
+                        } else if (call.method == "openExternal") {
+                            val url = call.argument<String>("url")
+                            if (url == null) { result.success(false); return@setMethodCallHandler }
+                            val uri = android.net.Uri.parse(url)
+                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, uri)
+                            intent.setDataAndType(uri, "video/*")
+                            try {
+                                startActivity(android.content.Intent.createChooser(intent, "تشغيل بواسطة"))
+                                result.success(true)
+                            } catch (e: Exception) {
+                                result.success(false)
+                            }
+                        } else {
+                            result.notImplemented()
+                        }
+                    }
+            }
+        }
+        EOF
+        echo "✅ MainActivity created"
+
+    - name: Install dependencies
+      run: flutter pub get
+
+    - name: Generate launcher icons
+      run: flutter pub run flutter_launcher_icons
+
+    # ✅ الخطوة الجديدة: إصلاح Gradle للحزم القديمة
+    - name: Fix Gradle for wakelock_plus and other packages
+      run: |
+        cat >> android/build.gradle << 'EOF'
+
+        // ✅ Fix: متغيرات flutter للحزم القديمة (wakelock_plus, package_info_plus)
+        ext {
+            flutter = [
+                compileSdkVersion: 34,
+                minSdkVersion: 21,
+                targetSdkVersion: 34,
+                ndkVersion: "25.1.8937393",
+                kotlin_version: "1.9.0"
+            ]
+        }
+        
+        subprojects {
+            afterEvaluate { project ->
+                if (project.hasProperty('android')) {
+                    project.android {
+                        if (namespace == null) {
+                            namespace project.group.toString()
+                        }
+                        compileSdkVersion 34
+                        buildToolsVersion "34.0.0"
+                    }
+                }
+            }
+        }
+        EOF
+        
+        echo "✅ Gradle patched successfully"
+        echo "=== Last 30 lines of build.gradle ==="
+        tail -30 android/build.gradle
+
+    - name: Build APK
+      run: flutter build apk --release
+
+    - name: Upload APK artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: tele-cinema-apk
+        path: build/app/outputs/flutter-apk/app-release.apk
+        retention-days: 30
+
+    - name: Create Release (on tag)
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: build/app/outputs/flutter-apk/app-release.apk
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
