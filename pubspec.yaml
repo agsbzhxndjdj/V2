@@ -1,6 +1,5 @@
 name: killlk
 description: Tele Cinema - تطبيق مشاهدة الأفلام
-
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -10,35 +9,19 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-
-  # 🌐 الشبكة
   dio: ^5.4.0
-
-  # 💾 التخزين المحلي
   hive: ^2.2.3
   hive_flutter: ^1.1.0
-
-  # 🖼️ الصور
   cached_network_image: ^3.3.0
-
-  # 🎬 مشغل الفيديو
   video_player: ^2.8.0
-
-  # 🔋 منع الشاشة من الإغلاق
   wakelock_plus: ^1.2.8
-
-  # 📶 فحص الاتصال
   connectivity_plus: ^6.1.0
-
-  # 📁 الملفات
-  path_provider: 2.1.5
-
-  # 🔤 النصوص
+  path_provider: ^2.1.4
   intl: ^0.19.0
-
-  # ✅ الحزم الناقصة:
   flutter_local_notifications: ^17.0.0
   file_picker: ^8.0.0
+  cloud_firestore: ^5.0.0
+  firebase_core: ^3.0.0
 
 dev_dependencies:
   flutter_test:
@@ -50,17 +33,9 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-
   assets:
     - assets/
     - assets/iconic.png
-
-  fonts:
-    - family: Cairo
-      fonts:
-        - asset: fonts/Cairo-Regular.ttf
-        - asset: fonts/Cairo-Bold.ttf
-          weight: 700
 
 flutter_launcher_icons:
   android: true
@@ -69,9 +44,10 @@ flutter_launcher_icons:
   adaptive_icon_background: "#0B0F14"
   adaptive_icon_foreground: "assets/iconic.png"
 
-# ✅ إجبار الحزم على إصدارات متوافقة
 dependency_overrides:
-  package_info_plus: ^8.3.0
-  wakelock_plus: ^1.2.8
-  connectivity_plus: ^6.1.0
-  path_provider: ^2.1.5
+  path_provider: 2.1.4
+  package_info_plus: 8.3.1
+  wakelock_plus: 1.2.8
+  connectivity_plus: 6.1.5
+  file_picker: 8.1.2
+  flutter_local_notifications: 17.2.3
