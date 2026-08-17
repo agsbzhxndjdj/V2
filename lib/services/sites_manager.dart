@@ -92,21 +92,21 @@ class SitesManager {
 
     for (var i = 0; i < movies.length; i += 5) {
       final batch = movies.skip(i).take(5);
-      final futures = batch.map((movie) async {
-        var enrichedMovie = await TmdbService.enrichMovie(movie);
+      final futures = batch.map<Future<SiteMovie>>((movie) async {
+        final enrichedMovie = await TmdbService.enrichMovie(movie) ?? movie;
 
         try {
           final hasSub = await SubtitleService.hasSubtitle(
             title: enrichedMovie.title,
             tmdbId: enrichedMovie.tmdbId,
           );
-          enrichedMovie = enrichedMovie.copyWith(
+          return enrichedMovie.copyWith(
             hasSubtitle: hasSub,
             subtitleLang: hasSub ? 'ar' : null,
           );
-        } catch (_) {}
-
-        return enrichedMovie;
+        } catch (_) {
+          return enrichedMovie;
+        }
       });
 
       enriched.addAll(await Future.wait(futures));
