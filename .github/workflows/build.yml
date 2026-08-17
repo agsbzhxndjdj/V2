@@ -28,6 +28,36 @@ jobs:
       - name: Disable analytics
         run: flutter config --no-analytics
 
+      - name: Force path_provider 2.1.4 in pubspec
+        run: |
+          python3 << 'PYEOF'
+          import re
+          with open('pubspec.yaml', 'r', encoding='utf-8') as f:
+              content = f.read()
+          
+          # حذف dependency_overrides القديمة
+          content = re.sub(r'\ndependency_overrides:.*', '', content, flags=re.DOTALL)
+          
+          # إضافة dependency_overrides الجديدة مع path_provider 2.1.4 بالضبط
+          content += '''
+
+          dependency_overrides:
+            path_provider: 2.1.4
+            package_info_plus: 8.3.1
+            wakelock_plus: 1.2.8
+            connectivity_plus: 6.1.5
+            file_picker: 8.1.2
+            flutter_local_notifications: 17.2.3
+          '''
+          
+          with open('pubspec.yaml', 'w', encoding='utf-8') as f:
+              f.write(content)
+          print("✅ Forced path_provider 2.1.4 (Dart 3.7 compatible)")
+          PYEOF
+          
+          echo "=== pubspec.yaml overrides ==="
+          grep -A 10 "dependency_overrides:" pubspec.yaml
+
       - name: Create missing files
         run: |
           set -e
@@ -331,6 +361,40 @@ jobs:
 
       - name: Create Android platform
         run: flutter create . --platforms android --no-overwrite
+
+      - name: Set NDK 27.0.12077973
+        run: |
+          python3 << 'PYEOF'
+          import re
+          with open('android/app/build.gradle', 'r') as f:
+              content = f.read()
+          
+          # حذف ndkVersion قديم
+          content = re.sub(r'\s*ndkVersion\s+"[^"]+"\s*', '\n', content)
+          content = re.sub(r'\s*ndkVersion\s+flutter\.ndkVersion\s*', '\n', content)
+          
+          # إضافة ndkVersion 27.0.12077973
+          content = re.sub(
+              r'android\s*{',
+              'android {\n    ndkVersion "27.0.12077973"',
+              content
+          )
+          
+          # التأكد من compileSdk 35
+          if 'compileSdk 35' not in content:
+              content = re.sub(
+                  r'android\s*{',
+                  'android {\n    compileSdk 35',
+                  content
+              )
+          
+          with open('android/app/build.gradle', 'w') as f:
+              f.write(content)
+          print("✅ Set ndkVersion 27.0.12077973 and compileSdk 35")
+          PYEOF
+          
+          echo "=== Verification ==="
+          grep -n "ndkVersion\|compileSdk" android/app/build.gradle | head -10
 
       - name: Patch AndroidManifest
         run: |
