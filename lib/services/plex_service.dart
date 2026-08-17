@@ -4,7 +4,7 @@ import 'package:dio/dio.dart';
 import '../models/site_movie.dart';
 
 class PlexService {
-  static const String _plexToken = 'YOUR_PLEX_TOKEN'; // ⚠️ ضع token من https://www.plex.tv/claim/
+  static const String _plexToken = 'claim-6rPWv-U4idkMhmJ3P5UX'; // ⚠️ ضع token من https://www.plex.tv/claim/
   static const String _baseUrl = 'https://vod.provider.plex.tv';
 
   static final Dio _dio = Dio(BaseOptions(
