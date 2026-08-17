@@ -1,5 +1,5 @@
 name: killlk
-description: Tele Cinema
+description: Tele Cinema - تطبيق مشاهدة الأفلام
 
 publish_to: 'none'
 version: 1.0.0+1
@@ -10,32 +10,57 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+
+  # 🌐 الشبكة
   dio: ^5.4.0
+
+  # 💾 التخزين المحلي
   hive: ^2.2.3
   hive_flutter: ^1.1.0
+
+  # 🖼️ الصور
   cached_network_image: ^3.3.0
-  video_player: ^2.9.5
+
+  # 🎬 مشغل الفيديو
+  video_player: ^2.8.0
+
+  # 🔋 منع الشاشة من الإغلاق
   wakelock_plus: ^1.2.8
+
+  # 📶 فحص الاتصال
   connectivity_plus: ^6.1.0
+
+  # 📁 الملفات
   path_provider: ^2.1.5
+
+  # 🔤 النصوص
   intl: ^0.19.0
-  
+
   # ✅ الحزم الناقصة:
   flutter_local_notifications: ^17.0.0
   file_picker: ^8.0.0
-  subtitle_wrapper_package: ^2.1.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
+  hive_generator: ^2.0.0
+  build_runner: ^2.4.0
   flutter_launcher_icons: ^0.13.1
 
 flutter:
   uses-material-design: true
+
   assets:
     - assets/
     - assets/iconic.png
+
+  fonts:
+    - family: Cairo
+      fonts:
+        - asset: fonts/Cairo-Regular.ttf
+        - asset: fonts/Cairo-Bold.ttf
+          weight: 700
 
 flutter_launcher_icons:
   android: true
@@ -44,7 +69,9 @@ flutter_launcher_icons:
   adaptive_icon_background: "#0B0F14"
   adaptive_icon_foreground: "assets/iconic.png"
 
+# ✅ إجبار الحزم على إصدارات متوافقة
 dependency_overrides:
   package_info_plus: ^8.3.0
+  wakelock_plus: ^1.2.8
   connectivity_plus: ^6.1.0
   path_provider: ^2.1.5
