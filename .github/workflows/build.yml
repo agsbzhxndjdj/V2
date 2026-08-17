@@ -19,23 +19,20 @@ jobs:
           distribution: zulu
           java-version: "17"
 
-      - name: Setup Flutter
+      - name: Setup Flutter 3.29.0
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.27.3
+          flutter-version: 3.29.0
           channel: stable
 
       - name: Disable analytics
         run: flutter config --no-analytics
 
-      - name: Create all missing files
+      - name: Create missing files
         run: |
           set -e
-          echo "=== Creating all missing files ==="
-          
           mkdir -p lib/models lib/services lib/screens lib/widgets
           
-          # 1. site_movie.dart
           cat > lib/models/site_movie.dart << 'EOF'
           class SiteMovie {
             final String id, title, year, site, videoUrl, poster, backdrop, overview, duration;
@@ -45,56 +42,42 @@ jobs:
             final bool hasSubtitle;
             final String? subtitleLang;
             final int? tmdbId;
-
-            SiteMovie({
-              required this.id, required this.title, required this.year, required this.site,
+            SiteMovie({required this.id, required this.title, required this.year, required this.site,
               required this.videoUrl, this.poster = '', this.backdrop = '', this.overview = '',
               this.rating = 0, this.duration = '', this.genres = const [],
-              this.qualities = const [], this.hasSubtitle = false, this.subtitleLang, this.tmdbId,
-            });
-
+              this.qualities = const [], this.hasSubtitle = false, this.subtitleLang, this.tmdbId});
             bool get isMultiQuality => qualities.length > 1;
-            String get qualityLabel => qualities.isEmpty ? '' : (isMultiQuality ? 'متعدد الجودات' : qualities.first.label);
+            String get qualityLabel => qualities.isEmpty ? '' : (isMultiQuality ? 'متعدد' : qualities.first.label);
             String get subtitleLabel => hasSubtitle ? 'مترجم' : 'بدون ترجمة';
             String get siteName => site == 'plex' ? 'Plex' : site == 'roku' ? 'Roku' : site == 'crackle' ? 'Crackle' : site;
-
             SiteMovie copyWith({String? poster, String? backdrop, String? overview, double? rating,
                 List<String>? genres, bool? hasSubtitle, String? subtitleLang, int? tmdbId}) {
-              return SiteMovie(
-                id: id, title: title, year: year, site: site, videoUrl: videoUrl, duration: duration,
+              return SiteMovie(id: id, title: title, year: year, site: site, videoUrl: videoUrl, duration: duration,
                 poster: poster ?? this.poster, backdrop: backdrop ?? this.backdrop,
                 overview: overview ?? this.overview, rating: rating ?? this.rating,
                 genres: genres ?? this.genres, qualities: qualities,
                 hasSubtitle: hasSubtitle ?? this.hasSubtitle, subtitleLang: subtitleLang ?? this.subtitleLang,
-                tmdbId: tmdbId ?? this.tmdbId,
-              );
+                tmdbId: tmdbId ?? this.tmdbId);
             }
           }
-
           class VideoQuality {
             final String label, url;
             final int bandwidth;
             VideoQuality({required this.label, required this.url, this.bandwidth = 0});
           }
           EOF
-          echo "✅ site_movie.dart"
 
-          # 2. tmdb_service.dart
           cat > lib/services/tmdb_service.dart << 'EOF'
           import 'package:dio/dio.dart';
           import '../models/site_movie.dart';
-
           class TmdbService {
             static const _apiKey = '9ba4e29354937364c2202857afcd7f94';
             static const _baseUrl = 'https://api.themoviedb.org/3';
             static const _imageBase = 'https://image.tmdb.org/t/p';
             static final Dio _dio = Dio(BaseOptions(connectTimeout: const Duration(seconds: 10), receiveTimeout: const Duration(seconds: 15)));
-
             static Future<SiteMovie?> enrichMovie(SiteMovie movie) async {
               try {
-                final res = await _dio.get('$_baseUrl/search/movie', queryParameters: {
-                  'api_key': _apiKey, 'query': movie.title, 'language': 'ar-SA',
-                });
+                final res = await _dio.get('$_baseUrl/search/movie', queryParameters: {'api_key': _apiKey, 'query': movie.title, 'language': 'ar-SA'});
                 final results = res.data['results'] as List;
                 if (results.isEmpty) return movie;
                 final tmdbId = results[0]['id'] as int;
@@ -105,75 +88,52 @@ jobs:
                   overview: det.data['overview'] ?? movie.overview,
                   rating: (det.data['vote_average'] ?? 0).toDouble(),
                   genres: (det.data['genres'] as List? ?? []).map((g) => g['name'] as String).toList(),
-                  tmdbId: tmdbId,
-                );
+                  tmdbId: tmdbId);
               } catch (e) { return movie; }
             }
           }
           EOF
-          echo "✅ tmdb_service.dart"
 
-          # 3. subtitle_service.dart
           cat > lib/services/subtitle_service.dart << 'EOF'
-          import 'package:dio/dio.dart';
-
           class SubtitleService {
-            static const _apiKey = 'YOUR_OPENSUBTITLES_KEY';
-            static final Dio _dio = Dio();
-
-            static Future<bool> hasSubtitle({required String title, int? tmdbId}) async {
-              try { return true; } catch (_) { return false; }
-            }
+            static Future<bool> hasSubtitle({required String title, int? tmdbId}) async => false;
+            static Future<String?> downloadSubtitleContent(String fileId) async => null;
+            static Future findBestSubtitle({required String title, String? year, int? tmdbId}) async => null;
           }
           EOF
-          echo "✅ subtitle_service.dart"
 
-          # 4. plex_service.dart
           cat > lib/services/plex_service.dart << 'EOF'
           import '../models/site_movie.dart';
-
           class PlexService {
             static Future<List<SiteMovie>> getMovies({int limit = 100}) async => [];
             static Future<List<SiteMovie>> search(String query) async => [];
           }
           EOF
-          echo "✅ plex_service.dart"
 
-          # 5. roku_service.dart
           cat > lib/services/roku_service.dart << 'EOF'
           import '../models/site_movie.dart';
-
           class RokuService {
             static Future<List<SiteMovie>> getMovies({int limit = 100}) async => [];
             static Future<List<SiteMovie>> search(String query) async => [];
           }
           EOF
-          echo "✅ roku_service.dart"
 
-          # 6. crackle_service.dart
           cat > lib/services/crackle_service.dart << 'EOF'
           import '../models/site_movie.dart';
-
           class CrackleService {
             static Future<List<SiteMovie>> getMovies({int limit = 100}) async => [];
             static Future<List<SiteMovie>> search(String query) async => [];
           }
           EOF
-          echo "✅ crackle_service.dart"
 
-          # 7. sites_manager.dart
           cat > lib/services/sites_manager.dart << 'EOF'
           import '../models/site_movie.dart';
           import 'plex_service.dart';
           import 'roku_service.dart';
           import 'crackle_service.dart';
           import 'tmdb_service.dart';
-          import 'subtitle_service.dart';
-          import '../core.dart';
-
           class SitesManager {
             static bool isSiteEnabled(String site) => true;
-
             static Future<List<SiteMovie>> getAllMovies({bool enrich = true}) async {
               final all = <SiteMovie>[];
               all.addAll(await PlexService.getMovies());
@@ -181,15 +141,11 @@ jobs:
               all.addAll(await CrackleService.getMovies());
               if (enrich) {
                 final enriched = <SiteMovie>[];
-                for (final m in all) {
-                  final e = await TmdbService.enrichMovie(m);
-                  enriched.add(e ?? m);
-                }
+                for (final m in all) enriched.add((await TmdbService.enrichMovie(m)) ?? m);
                 return enriched;
               }
               return all;
             }
-
             static Future<List<SiteMovie>> getMoviesFromSite(String site, {bool enrich = true}) async {
               List<SiteMovie> list;
               switch (site) {
@@ -200,290 +156,178 @@ jobs:
               }
               if (enrich) {
                 final enriched = <SiteMovie>[];
-                for (final m in list) {
-                  final e = await TmdbService.enrichMovie(m);
-                  enriched.add(e ?? m);
-                }
+                for (final m in list) enriched.add((await TmdbService.enrichMovie(m)) ?? m);
                 return enriched;
               }
               return list;
             }
-
             static Future<List<SiteMovie>> search(String query) async => [];
           }
           EOF
-          echo "✅ sites_manager.dart"
 
-          # 8. sites_home_screen.dart
           cat > lib/screens/sites_home_screen.dart << 'EOF'
           import 'package:flutter/material.dart';
           import '../models/site_movie.dart';
           import '../services/sites_manager.dart';
           import '../widgets/site_movie_card.dart';
           import '../lang.dart';
-
           class SitesHomeScreen extends StatefulWidget {
             const SitesHomeScreen({super.key});
             @override
             State<SitesHomeScreen> createState() => _SitesHomeScreenState();
           }
-
           class _SitesHomeScreenState extends State<SitesHomeScreen> {
             List<SiteMovie> _movies = [];
             bool _loading = true;
             String _selectedSite = 'all';
-
             @override
             void initState() { super.initState(); _loadMovies(); }
-
             Future<void> _loadMovies() async {
               setState(() => _loading = true);
               try {
                 final movies = await SitesManager.getAllMovies();
                 if (mounted) setState(() { _movies = movies; _loading = false; });
-              } catch (e) {
-                if (mounted) setState(() => _loading = false);
-              }
+              } catch (e) { if (mounted) setState(() => _loading = false); }
             }
-
             Future<void> _loadSiteMovies(String site) async {
               setState(() { _selectedSite = site; _loading = true; });
               try {
                 final movies = await SitesManager.getMoviesFromSite(site);
                 if (mounted) setState(() { _movies = movies; _loading = false; });
-              } catch (e) {
-                if (mounted) setState(() => _loading = false);
-              }
+              } catch (e) { if (mounted) setState(() => _loading = false); }
             }
-
             @override
             Widget build(BuildContext context) {
-              return Scaffold(
-                backgroundColor: const Color(0xFF0B0F14),
-                appBar: AppBar(
-                  backgroundColor: const Color(0xFF0B0F14),
+              return Scaffold(backgroundColor: const Color(0xFF0B0F14),
+                appBar: AppBar(backgroundColor: const Color(0xFF0B0F14),
                   title: const Text('المواقع', style: TextStyle(fontWeight: FontWeight.bold)),
-                  actions: [
-                    IconButton(icon: const Icon(Icons.refresh),
-                      onPressed: _selectedSite == 'all' ? _loadMovies : () => _loadSiteMovies(_selectedSite)),
-                  ],
-                ),
+                  actions: [IconButton(icon: const Icon(Icons.refresh),
+                    onPressed: _selectedSite == 'all' ? _loadMovies : () => _loadSiteMovies(_selectedSite))]),
                 body: Column(children: [
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                  Padding(padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: Row(children: [
-                      _buildButton('all', 'الكل', Icons.apps),
-                      const SizedBox(width: 8),
-                      _buildButton('plex', 'Plex', Icons.movie),
-                      const SizedBox(width: 8),
-                      _buildButton('roku', 'Roku', Icons.tv),
-                      const SizedBox(width: 8),
-                      _buildButton('crackle', 'Crackle', Icons.play_circle),
-                    ]),
-                  ),
+                      _btn('all', 'الكل', Icons.apps), const SizedBox(width: 8),
+                      _btn('plex', 'Plex', Icons.movie), const SizedBox(width: 8),
+                      _btn('roku', 'Roku', Icons.tv), const SizedBox(width: 8),
+                      _btn('crackle', 'Crackle', Icons.play_circle),
+                    ])),
                   const SizedBox(height: 10),
-                  Expanded(
-                    child: _loading
-                      ? const Center(child: CircularProgressIndicator())
-                      : _movies.isEmpty
-                        ? const Center(child: Text('لا توجد أفلام', style: TextStyle(color: Colors.grey)))
-                        : GridView.builder(
-                            padding: const EdgeInsets.all(8),
-                            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: 3, childAspectRatio: 0.55,
-                              crossAxisSpacing: 8, mainAxisSpacing: 8,
-                            ),
-                            itemCount: _movies.length,
-                            itemBuilder: (context, index) => SiteMovieCard(movie: _movies[index]),
-                          ),
-                  ),
-                ]),
-              );
+                  Expanded(child: _loading ? const Center(child: CircularProgressIndicator())
+                    : _movies.isEmpty ? const Center(child: Text('لا توجد أفلام', style: TextStyle(color: Colors.grey)))
+                    : GridView.builder(padding: const EdgeInsets.all(8),
+                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 3, childAspectRatio: 0.55, crossAxisSpacing: 8, mainAxisSpacing: 8),
+                        itemCount: _movies.length,
+                        itemBuilder: (c, i) => SiteMovieCard(movie: _movies[i]))),
+                ]));
             }
-
-            Widget _buildButton(String site, String label, IconData icon) {
-              final isSelected = _selectedSite == site;
-              return Expanded(
-                child: GestureDetector(
-                  onTap: () {
-                    if (site == 'all') { setState(() => _selectedSite = 'all'); _loadMovies(); }
-                    else _loadSiteMovies(site);
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    decoration: BoxDecoration(
-                      color: isSelected ? AppTheme.accent : const Color(0xFF1B2430),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: isSelected ? AppTheme.accent : Colors.transparent, width: 2),
-                    ),
-                    child: Column(children: [
-                      Icon(icon, color: isSelected ? Colors.black : Colors.white70, size: 20),
-                      const SizedBox(height: 4),
-                      Text(label, style: TextStyle(
-                        color: isSelected ? Colors.black : Colors.white,
-                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                        fontSize: 12,
-                      )),
-                    ]),
-                  ),
-                ),
-              );
+            Widget _btn(String site, String label, IconData icon) {
+              final sel = _selectedSite == site;
+              return Expanded(child: GestureDetector(
+                onTap: () { if (site == 'all') { setState(() => _selectedSite = 'all'); _loadMovies(); } else _loadSiteMovies(site); },
+                child: Container(padding: const EdgeInsets.symmetric(vertical: 12),
+                  decoration: BoxDecoration(color: sel ? AppTheme.accent : const Color(0xFF1B2430),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: sel ? AppTheme.accent : Colors.transparent, width: 2)),
+                  child: Column(children: [
+                    Icon(icon, color: sel ? Colors.black : Colors.white70, size: 20),
+                    const SizedBox(height: 4),
+                    Text(label, style: TextStyle(color: sel ? Colors.black : Colors.white,
+                      fontWeight: sel ? FontWeight.bold : FontWeight.normal, fontSize: 12)),
+                  ]))));
             }
           }
           EOF
-          echo "✅ sites_home_screen.dart"
 
-          # 9. player_screen.dart
           cat > lib/screens/player_screen.dart << 'EOF'
           import 'package:flutter/material.dart';
           import 'package:video_player/video_player.dart';
           import '../models/site_movie.dart';
-
           class PlayerScreen extends StatefulWidget {
             final SiteMovie movie;
             const PlayerScreen({super.key, required this.movie});
             @override
             State<PlayerScreen> createState() => _PlayerScreenState();
           }
-
           class _PlayerScreenState extends State<PlayerScreen> {
-            VideoPlayerController? _controller;
+            VideoPlayerController? _c;
             bool _loading = true;
-
             @override
             void initState() { super.initState(); _init(); }
-
             Future<void> _init() async {
               try {
-                _controller = VideoPlayerController.networkUrl(Uri.parse(widget.movie.videoUrl));
-                await _controller!.initialize();
-                if (mounted) { setState(() => _loading = false); await _controller!.play(); }
-              } catch (e) {
-                if (mounted) setState(() => _loading = false);
-              }
+                _c = VideoPlayerController.networkUrl(Uri.parse(widget.movie.videoUrl));
+                await _c!.initialize();
+                if (mounted) { setState(() => _loading = false); await _c!.play(); }
+              } catch (e) { if (mounted) setState(() => _loading = false); }
             }
-
             @override
-            void dispose() { _controller?.dispose(); super.dispose(); }
-
+            void dispose() { _c?.dispose(); super.dispose(); }
             @override
-            Widget build(BuildContext context) {
-              return Scaffold(
-                backgroundColor: Colors.black,
-                body: Stack(fit: StackFit.expand, children: [
-                  if (_controller != null && _controller!.value.isInitialized)
-                    Center(child: AspectRatio(aspectRatio: _controller!.value.aspectRatio, child: VideoPlayer(_controller!))),
-                  if (_loading) const Center(child: CircularProgressIndicator(color: Color(0xFFFFC107))),
-                  Positioned(top: 16, left: 16, child: IconButton(
-                    icon: const Icon(Icons.arrow_back, color: Colors.white, size: 28),
-                    onPressed: () => Navigator.pop(context),
-                  )),
-                ]),
-              );
-            }
+            Widget build(BuildContext context) => Scaffold(backgroundColor: Colors.black,
+              body: Stack(fit: StackFit.expand, children: [
+                if (_c != null && _c!.value.isInitialized)
+                  Center(child: AspectRatio(aspectRatio: _c!.value.aspectRatio, child: VideoPlayer(_c!))),
+                if (_loading) const Center(child: CircularProgressIndicator(color: Color(0xFFFFC107))),
+                Positioned(top: 16, left: 16, child: IconButton(
+                  icon: const Icon(Icons.arrow_back, color: Colors.white, size: 28),
+                  onPressed: () => Navigator.pop(context))),
+              ]));
           }
           EOF
-          echo "✅ player_screen.dart"
 
-          # 10. site_movie_card.dart
           cat > lib/widgets/site_movie_card.dart << 'EOF'
           import 'package:flutter/material.dart';
           import 'package:cached_network_image/cached_network_image.dart';
           import '../models/site_movie.dart';
           import '../lang.dart';
           import '../screens/player_screen.dart';
-
           class SiteMovieCard extends StatelessWidget {
             final SiteMovie movie;
             const SiteMovieCard({super.key, required this.movie});
-
             @override
-            Widget build(BuildContext context) {
-              return GestureDetector(
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PlayerScreen(movie: movie))),
-                child: Container(
-                  decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), color: const Color(0xFF1B2430)),
-                  child: ClipRRect(borderRadius: BorderRadius.circular(12), child: Stack(fit: StackFit.expand, children: [
-                    movie.poster.isNotEmpty
-                      ? CachedNetworkImage(imageUrl: movie.poster, fit: BoxFit.cover,
-                          errorWidget: (_, __, ___) => Container(color: const Color(0xFF1B2430), child: const Icon(Icons.movie, color: Colors.grey)))
-                      : Container(color: const Color(0xFF1B2430), child: const Icon(Icons.movie, color: Colors.grey)),
-                    Positioned(bottom: 0, left: 0, right: 0, child: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: const BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Colors.transparent, Colors.black87])),
-                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text(movie.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 4),
-                        Row(children: [
-                          if (movie.qualityLabel.isNotEmpty)
-                            Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(color: movie.isMultiQuality ? Colors.purple : AppTheme.accent, borderRadius: BorderRadius.circular(4)),
-                              child: Text(movie.qualityLabel, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.black))),
-                          const SizedBox(width: 4),
+            Widget build(BuildContext context) => GestureDetector(
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PlayerScreen(movie: movie))),
+              child: Container(decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), color: const Color(0xFF1B2430)),
+                child: ClipRRect(borderRadius: BorderRadius.circular(12), child: Stack(fit: StackFit.expand, children: [
+                  movie.poster.isNotEmpty ? CachedNetworkImage(imageUrl: movie.poster, fit: BoxFit.cover,
+                    errorWidget: (_, __, ___) => Container(color: const Color(0xFF1B2430), child: const Icon(Icons.movie, color: Colors.grey)))
+                  : Container(color: const Color(0xFF1B2430), child: const Icon(Icons.movie, color: Colors.grey)),
+                  Positioned(bottom: 0, left: 0, right: 0, child: Container(padding: const EdgeInsets.all(8),
+                    decoration: const BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Colors.transparent, Colors.black87])),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(movie.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 4),
+                      Row(children: [
+                        if (movie.qualityLabel.isNotEmpty)
                           Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(color: movie.hasSubtitle ? Colors.green : Colors.grey.shade700, borderRadius: BorderRadius.circular(4)),
-                            child: Text(movie.subtitleLabel, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.white))),
-                        ]),
-                      ]),
-                    )),
-                    Positioned(top: 6, left: 6, child: Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(4)),
-                      child: Text(movie.siteName, style: const TextStyle(fontSize: 9, color: Colors.white)))),
-                    if (movie.rating > 0)
-                      Positioned(top: 6, right: 6, child: Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(4)),
-                        child: Row(mainAxisSize: MainAxisSize.min, children: [
-                          const Icon(Icons.star, size: 12, color: Color(0xFFFFC107)),
-                          const SizedBox(width: 2),
-                          Text(movie.rating.toStringAsFixed(1), style: const TextStyle(fontSize: 10, color: Colors.white)),
-                        ]))),
-                  ])),
-                ),
-              );
-            }
+                            decoration: BoxDecoration(color: movie.isMultiQuality ? Colors.purple : AppTheme.accent, borderRadius: BorderRadius.circular(4)),
+                            child: Text(movie.qualityLabel, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.black))),
+                        const SizedBox(width: 4),
+                        Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(color: movie.hasSubtitle ? Colors.green : Colors.grey.shade700, borderRadius: BorderRadius.circular(4)),
+                          child: Text(movie.subtitleLabel, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.white))),
+                      ])]))),
+                  Positioned(top: 6, left: 6, child: Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(4)),
+                    child: Text(movie.siteName, style: const TextStyle(fontSize: 9, color: Colors.white)))),
+                  if (movie.rating > 0) Positioned(top: 6, right: 6, child: Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(4)),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      const Icon(Icons.star, size: 12, color: Color(0xFFFFC107)), const SizedBox(width: 2),
+                      Text(movie.rating.toStringAsFixed(1), style: const TextStyle(fontSize: 10, color: Colors.white))]))),
+                ]))));
           }
           EOF
-          echo "✅ site_movie_card.dart"
 
-          echo "=== All files created ==="
-          ls -la lib/models/ lib/services/ lib/screens/ lib/widgets/
+          echo "✅ All missing files created"
 
       - name: Fix syntax issues
         run: |
-          # Fix double semicolons in ui.dart
-          if [ -f "lib/ui.dart" ]; then
-            sed -i 's/]));;/]));/g' lib/ui.dart
-            sed -i 's/Widget _sortItem/PopupMenuItem<String> _sortItem/g' lib/ui.dart
-            sed -i 's/=> PopupMenuItem(/=> PopupMenuItem<String>(/g' lib/ui.dart
-          fi
-          
-          # Add lang.dart import if missing
-          for f in lib/screens/sites_home_screen.dart lib/widgets/site_movie_card.dart; do
-            if [ -f "$f" ]; then
-              if ! grep -q "lang.dart" "$f"; then
-                sed -i "1i import '../lang.dart';" "$f"
-              fi
-            fi
-          done
-          
-          echo "Syntax fixes applied"
-
-      - name: Fix pubspec.yaml
-        run: |
-          python3 << 'PYEOF'
-          with open('pubspec.yaml', 'r', encoding='utf-8') as f:
-              content = f.read()
-          
-          # Add dependency_overrides for path_provider
-          if 'dependency_overrides:' not in content:
-              content += '\n\ndependency_overrides:\n  path_provider: ^2.0.0\n'
-          elif 'path_provider:' not in content.split('dependency_overrides:')[1].split('\n\n')[0] if 'dependency_overrides:' in content else '':
-              content = content.replace('dependency_overrides:', 'dependency_overrides:\n  path_provider: ^2.0.0')
-          
-          with open('pubspec.yaml', 'w', encoding='utf-8') as f:
-              f.write(content)
-          print("pubspec.yaml updated")
-          PYEOF
+          sed -i 's/]));;/]));/g' lib/ui.dart 2>/dev/null || true
+          sed -i 's/Widget _sortItem/PopupMenuItem<String> _sortItem/g' lib/ui.dart 2>/dev/null || true
+          sed -i 's/=> PopupMenuItem(/=> PopupMenuItem<String>(/g' lib/ui.dart 2>/dev/null || true
+          echo "✅ Syntax fixed"
 
       - name: Create Android platform
         run: flutter create . --platforms android --no-overwrite
@@ -495,14 +339,12 @@ jobs:
       - name: Write MainActivity
         run: |
           MAIN_ACT=$(find android/app/src/main -name "MainActivity.kt" | head -n 1)
-          cat > "$MAIN_ACT" << 'KOTLIN_EOF'
+          cat > "$MAIN_ACT" << 'EOF'
           package com.example.killlk
-
           import android.content.pm.PackageManager
           import io.flutter.embedding.android.FlutterActivity
           import io.flutter.embedding.engine.FlutterEngine
           import io.flutter.plugin.common.MethodChannel
-
           class MainActivity : FlutterActivity() {
               override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
                   super.configureFlutterEngine(flutterEngine)
@@ -510,29 +352,20 @@ jobs:
                       .setMethodCallHandler { call, result ->
                           if (call.method == "isTv") {
                               val pm = packageManager
-                              result.success(
-                                  pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
-                                      pm.hasSystemFeature(PackageManager.FEATURE_TELEVISION)
-                              )
+                              result.success(pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) || pm.hasSystemFeature(PackageManager.FEATURE_TELEVISION))
                           } else if (call.method == "openExternal") {
                               val url = call.argument<String>("url")
                               if (url == null) { result.success(false); return@setMethodCallHandler }
                               val uri = android.net.Uri.parse(url)
                               val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, uri)
                               intent.setDataAndType(uri, "video/*")
-                              try {
-                                  startActivity(android.content.Intent.createChooser(intent, "Play with"))
-                                  result.success(true)
-                              } catch (e: Exception) {
-                                  result.success(false)
-                              }
-                          } else {
-                              result.notImplemented()
-                          }
+                              try { startActivity(android.content.Intent.createChooser(intent, "Play with")); result.success(true) }
+                              catch (e: Exception) { result.success(false) }
+                          } else { result.notImplemented() }
                       }
               }
           }
-          KOTLIN_EOF
+          EOF
 
       - name: Install dependencies
         run: flutter pub get
