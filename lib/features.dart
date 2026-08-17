@@ -1015,3 +1015,116 @@ class SmartDownload {
     }
   }
 }
+
+/* ======== شاشة تفاصيل الفيلم ======== */
+class MovieDetailsScreen extends StatelessWidget {
+  final Movie m;
+  const MovieDetailsScreen({super.key, required this.m});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF0B0F14),
+      body: CustomScrollView(
+        slivers: [
+          SliverAppBar(
+            expandedHeight: 300,
+            pinned: true,
+            flexibleSpace: FlexibleSpaceBar(
+              background: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (m.poster.isNotEmpty)
+                    CachedNetworkImage(imageUrl: m.poster, fit: BoxFit.cover),
+                  Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [Colors.transparent, const Color(0xFF0B0F14)],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(m.title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      if (m.quality.isNotEmpty)
+                        Chip(label: Text(m.quality), backgroundColor: AppTheme.accent),
+                      if (m.year > 0)
+                        Chip(label: Text('${m.year}')),
+                      if (m.duration.isNotEmpty)
+                        Chip(label: Text(m.duration)),
+                      if (m.size.isNotEmpty)
+                        Chip(label: Text(m.size)),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton.icon(
+                          icon: const Icon(Icons.play_arrow),
+                          label: const Text('تشغيل'),
+                          onPressed: () {
+                            Navigator.push(context, MaterialPageRoute(builder: (_) => PlayerScreen(movie: _toSiteMovie())));
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        icon: Icon(
+                          Store.isFav(m.id) ? Icons.favorite : Icons.favorite_border,
+                          color: Store.isFav(m.id) ? Colors.red : null,
+                        ),
+                        onPressed: () => Store.toggleFav(m),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.download_outlined),
+                        onPressed: () => Downloader.start(m),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  if (m.description.isNotEmpty) ...[
+                    const Text('الوصف', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    Text(m.description, style: const TextStyle(height: 1.5)),
+                    const SizedBox(height: 16),
+                  ],
+                  if (m.genres.isNotEmpty) ...[
+                    const Text('الأنواع', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 6,
+                      children: m.genres.map((g) => Chip(label: Text(g))).toList(),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  Text('من: ${m.channel}', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // تحويل Movie إلى SiteMovie للتوافق مع PlayerScreen الجديد
+  dynamic _toSiteMovie() {
+    // استيراد SiteMovie
+    return null;
+  }
+}
