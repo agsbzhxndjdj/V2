@@ -109,35 +109,19 @@ jobs:
       - name: Generate launcher icons
         run: flutter pub run flutter_launcher_icons
 
-      - name: Patch Gradle files for plugin compatibility
-        run: |
-          # إضافة متغيرات flutter في build.gradle الرئيسي قبل allprojects
-          if ! grep -q "ext.flutter" android/build.gradle; then
-            sed -i '0,/allprojects/s/allprojects/ext {\n    flutter = [\n        compileSdkVersion: 34,\n        minSdkVersion: 21,\n        targetSdkVersion: 34,\n        ndkVersion: "25.1.8937393"\n    ]\n}\n\nallprojects/' android/build.gradle
-            echo "✅ Added flutter ext block"
-          fi
-          
-          # تعديل ملفات build.gradle للحزم المشكلة مباشرة
-          find ~/.pub-cache/hosted/pub.dev -name "build.gradle" -path "*/android/*" 2>/dev/null | while read f; do
-            if grep -q "flutter.compileSdkVersion\|flutter\.compileSdkVersion" "$f" 2>/dev/null; then
-              sed -i 's/flutter\.compileSdkVersion/34/g' "$f"
-              echo "✅ Fixed: $f"
-            fi
-            if grep -q "flutter.minSdkVersion\|flutter\.minSdkVersion" "$f" 2>/dev/null; then
-              sed -i 's/flutter\.minSdkVersion/21/g' "$f"
-            fi
-            if grep -q "flutter.targetSdkVersion\|flutter\.targetSdkVersion" "$f" 2>/dev/null; then
-              sed -i 's/flutter\.targetSdkVersion/34/g' "$f"
-            fi
-          done
-          
-          # إضافة compileSdk 34 لملف app/build.gradle
-          if ! grep -q "compileSdk 34" android/app/build.gradle; then
-            sed -i '/android {/a\    compileSdk 34' android/app/build.gradle
-            echo "✅ Added compileSdk 34 to app"
-          fi
-          
-          echo "=== Done patching ==="
+      - name: Patch Gradle and Kotlin files
+  run: |
+    # 1. تحديث Kotlin version إلى 2.0.0
+    sed -i 's/org.jetbrains.kotlin.android" version "1.9.0"/org.jetbrains.kotlin.android" version "2.0.0"/g' android/settings.gradle
+    
+    # 2. تحديث compileSdk إلى 35
+    sed -i 's/compileSdk 34/compileSdk 35/g' android/app/build.gradle
+    sed -i 's/compileSdkVersion 34/compileSdkVersion 35/g' android/app/build.gradle
+    
+    # 3. إضافة compileSdk 35 للحزم
+    sed -i 's/compileSdkVersion 34/compileSdkVersion 35/g' android/build.gradle
+    
+    echo "✅ Updated Kotlin to 2.0.0 and compileSdk to 35"
 
       - name: Build release APK
         run: flutter build apk --release
