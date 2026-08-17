@@ -35,10 +35,7 @@ jobs:
           with open('pubspec.yaml', 'r', encoding='utf-8') as f:
               content = f.read()
           
-          # إزالة قسم fonts (المجلد غير موجود)
           content = re.sub(r'\n\s*fonts:.*?(?=\n\n|\Z)', '', content, flags=re.DOTALL)
-          
-          # إضافة dependency_overrides
           content = re.sub(r'\ndependency_overrides:.*', '', content, flags=re.DOTALL)
           content += '''
 
@@ -60,7 +57,6 @@ jobs:
         run: |
           mkdir -p lib/models lib/services lib/screens lib/widgets
           
-          # site_movie.dart
           cat > lib/models/site_movie.dart << 'EOF'
           class SiteMovie {
             final String id, title, year, site, videoUrl, poster, backdrop, overview, duration;
@@ -357,47 +353,72 @@ jobs:
           sed -i 's/=> PopupMenuItem(/=> PopupMenuItem<String>(/g' lib/ui.dart 2>/dev/null || true
           echo "syntax fixed"
 
-      # ✅ حذف أي مجلد android موجود لضمان إنشاء نظيف
-      - name: Clean Android folder
+      - name: Clean and create Android platform
         run: |
           rm -rf android
-          echo "android folder removed for fresh creation"
+          flutter create . --platforms android
+          echo "=== Android files created ==="
+          ls -la android/app/ | grep build.gradle
+          echo "=== Checking which format was used ==="
+          if [ -f "android/app/build.gradle.kts" ]; then
+            echo "Kotlin DSL (.kts) detected"
+            echo "BUILD_TYPE=kts" >> $GITHUB_ENV
+          elif [ -f "android/app/build.gradle" ]; then
+            echo "Groovy DSL (.gradle) detected"
+            echo "BUILD_TYPE=gradle" >> $GITHUB_ENV
+          fi
 
-      # ✅ إنشاء Android من الصفر (سيستخدم إعدادات Flutter الافتراضية الصحيحة)
-      - name: Create Android platform
-        run: flutter create . --platforms android
-
-      # ✅ تعديل app/build.gradle فقط (compileSdk و ndkVersion)
-      - name: Patch app build.gradle
+      - name: Patch build.gradle (auto-detect format)
         run: |
           python3 << 'PYEOF'
           import re
-          with open('android/app/build.gradle.kts', 'r') as f:
-              content = f.read()
+          import os
           
-          # البحث عن compileSdk وتغييره
-          if 'compileSdk = ' in content:
-              content = re.sub(r'compileSdk = \d+', 'compileSdk = 35', content)
-          elif 'compileSdk ' in content:
-              content = re.sub(r'compileSdk \d+', 'compileSdk 35', content)
+          build_type = os.environ.get('BUILD_TYPE', 'gradle')
           
-          # البحث عن ndkVersion وتغييره
-          if 'ndkVersion = ' in content:
-              content = re.sub(r'ndkVersion = "[^"]+"', 'ndkVersion = "27.0.12077973"', content)
-          elif 'ndkVersion ' in content:
-              content = re.sub(r'ndkVersion "[^"]+"', 'ndkVersion "27.0.12077973"', content)
+          if build_type == 'kts':
+              file_path = 'android/app/build.gradle.kts'
+              # Kotlin DSL syntax: compileSdk = 35, ndkVersion = "27..."
+              with open(file_path, 'r') as f:
+                  content = f.read()
+              
+              content = re.sub(r'compileSdk\s*=\s*\d+', 'compileSdk = 35', content)
+              content = re.sub(r'ndkVersion\s*=\s*"[^"]*"', 'ndkVersion = "27.0.12077973"', content)
+              
+              # إذا لم تكن موجودة، أضفها
+              if 'compileSdk' not in content:
+                  content = content.replace('android {', 'android {\n    compileSdk = 35\n')
+              if 'ndkVersion' not in content:
+                  content = content.replace('android {', 'android {\n    ndkVersion = "27.0.12077973"\n')
+          else:
+              file_path = 'android/app/build.gradle'
+              # Groovy DSL syntax: compileSdk 35, ndkVersion "27..."
+              with open(file_path, 'r') as f:
+                  content = f.read()
+              
+              content = re.sub(r'compileSdk\s+\d+', 'compileSdk 35', content)
+              content = re.sub(r'compileSdkVersion\s+\d+', 'compileSdkVersion 35', content)
+              content = re.sub(r'ndkVersion\s+"[^"]*"', 'ndkVersion "27.0.12077973"', content)
+              content = re.sub(r'ndkVersion\s+flutter\.ndkVersion', 'ndkVersion "27.0.12077973"', content)
+              
+              # إذا لم تكن موجودة، أضفها
+              if 'compileSdk' not in content:
+                  content = content.replace('android {', 'android {\n    compileSdk 35\n')
+              if 'ndkVersion' not in content:
+                  content = content.replace('android {', 'android {\n    ndkVersion "27.0.12077973"\n')
           
-          with open('android/app/build.gradle.kts', 'w') as f:
+          with open(file_path, 'w') as f:
               f.write(content)
-          print("Patched build.gradle.kts")
           
-          # طباعة محتوى الملف للتحقق
-          with open('android/app/build.gradle.kts', 'r') as f:
-              c = f.read()
-              for line in c.split('\n'):
-                  if 'compileSdk' in line or 'ndkVersion' in line:
-                      print(line)
+          print(f"✅ Patched {file_path}")
           PYEOF
+          
+          echo "=== Verification ==="
+          if [ -f "android/app/build.gradle.kts" ]; then
+            grep -n "compileSdk\|ndkVersion" android/app/build.gradle.kts | head -5
+          elif [ -f "android/app/build.gradle" ]; then
+            grep -n "compileSdk\|ndkVersion" android/app/build.gradle | head -5
+          fi
 
       - name: Patch AndroidManifest for TV
         run: |
