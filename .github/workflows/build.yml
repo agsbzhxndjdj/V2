@@ -2,175 +2,150 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Setup Java
-      uses: actions/setup-java@v4
-      with:
-        distribution: 'zulu'
-        java-version: '17'
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: "17"
 
-    - name: Setup Flutter
-      uses: subosito/flutter-action@v2
-      with:
-        flutter-version: '3.24.3'
-        channel: 'stable'
-        cache: true
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.24.3
+          channel: stable
 
-    - name: Disable Flutter analytics
-      run: flutter config --no-analytics
+      - name: Disable analytics
+        run: flutter config --no-analytics
 
-    - name: Fix project name
-      run: sed -i 's/^name: V2/name: killlk/' pubspec.yaml || true
+      - name: Create Android platform
+        run: flutter create . --platforms android --no-overwrite
 
-    - name: Flutter create Android platform
-      run: flutter create . --platforms android --no-overwrite
+      - name: Write modern settings.gradle
+        run: |
+          cat > android/settings.gradle << 'SETTINGS_EOF'
+          pluginManagement {
+              def flutterSdkPath = {
+                  def properties = new Properties()
+                  file("local.properties").withInputStream { properties.load(it) }
+                  def flutterSdkPath = properties.getProperty("flutter.sdk")
+                  assert flutterSdkPath != null, "flutter.sdk not set in local.properties"
+                  return flutterSdkPath
+              }()
+              includeBuild("$flutterSdkPath/packages/flutter_tools/gradle")
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          plugins {
+              id "dev.flutter.flutter-plugin-loader" version "1.0.0"
+              id "com.android.application" version "8.1.0" apply false
+              id "org.jetbrains.kotlin.android" version "1.9.0" apply false
+          }
+          include ":app"
+          SETTINGS_EOF
+          echo "settings.gradle written"
 
-    - name: Patch settings.gradle
-      run: |
-        cat > android/settings.gradle << 'EOF'
-        pluginManagement {
-            def flutterSdkPath = {
-                def properties = new Properties()
-                file("local.properties").withInputStream { properties.load(it) }
-                def flutterSdkPath = properties.getProperty("flutter.sdk")
-                assert flutterSdkPath != null, "flutter.sdk not set in local.properties"
-                return flutterSdkPath
-            }()
+      - name: Patch AndroidManifest for TV
+        run: |
+          sed -i 's|<application|<uses-feature android:name="android.software.leanback" android:required="false" />\n    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />\n    <application|' android/app/src/main/AndroidManifest.xml
+          echo "AndroidManifest patched"
 
-            includeBuild("$flutterSdkPath/packages/flutter_tools/gradle")
+      - name: Write MainActivity with TV detection
+        run: |
+          MAIN_ACT=$(find android/app/src/main -name "MainActivity.kt" | head -n 1)
+          cat > "$MAIN_ACT" << 'KOTLIN_EOF'
+          package com.example.killlk
 
-            repositories {
-                google()
-                mavenCentral()
-                gradlePluginPortal()
-            }
-        }
+          import android.content.pm.PackageManager
+          import io.flutter.embedding.android.FlutterActivity
+          import io.flutter.embedding.engine.FlutterEngine
+          import io.flutter.plugin.common.MethodChannel
 
-        plugins {
-            id "dev.flutter.flutter-plugin-loader" version "1.0.0"
-            id "com.android.application" version "8.1.0" apply false
-            id "org.jetbrains.kotlin.android" version "1.9.0" apply false
-        }
+          class MainActivity : FlutterActivity() {
+              override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+                  super.configureFlutterEngine(flutterEngine)
+                  MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "tele_cinema/device")
+                      .setMethodCallHandler { call, result ->
+                          if (call.method == "isTv") {
+                              val pm = packageManager
+                              result.success(
+                                  pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
+                                      pm.hasSystemFeature(PackageManager.FEATURE_TELEVISION)
+                              )
+                          } else if (call.method == "openExternal") {
+                              val url = call.argument<String>("url")
+                              if (url == null) { result.success(false); return@setMethodCallHandler }
+                              val uri = android.net.Uri.parse(url)
+                              val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, uri)
+                              intent.setDataAndType(uri, "video/*")
+                              try {
+                                  startActivity(android.content.Intent.createChooser(intent, "Play with"))
+                                  result.success(true)
+                              } catch (e: Exception) {
+                                  result.success(false)
+                              }
+                          } else {
+                              result.notImplemented()
+                          }
+                      }
+              }
+          }
+          KOTLIN_EOF
+          echo "MainActivity written"
 
-        include ":app"
-        EOF
-        echo "✅ settings.gradle patched"
+      - name: Install dependencies
+        run: flutter pub get
 
-    - name: Patch AndroidManifest for TV support
-      run: |
-        sed -i 's|<application|<uses-feature android:name="android.software.leanback" android:required="false" />\n    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />\n    <application|' android/app/src/main/AndroidManifest.xml
-        grep -n "application" android/app/src/main/AndroidManifest.xml | head -5
+      - name: Generate launcher icons
+        run: flutter pub run flutter_launcher_icons
 
-    - name: Create MainActivity with TV detection
-      run: |
-        MAIN_ACT=$(find android/app/src/main -name "MainActivity.kt" | head -n 1)
-        cat > "$MAIN_ACT" << 'EOF'
-        package com.example.killlk
+      - name: Patch root build.gradle for old plugins
+        run: |
+          cat >> android/build.gradle << 'GRADLE_EOF'
 
-        import android.content.pm.PackageManager
-        import io.flutter.embedding.android.FlutterActivity
-        import io.flutter.embedding.engine.FlutterEngine
-        import io.flutter.plugin.common.MethodChannel
+          ext {
+              flutter = [
+                  compileSdkVersion: 34,
+                  minSdkVersion: 21,
+                  targetSdkVersion: 34,
+                  ndkVersion: "25.1.8937393"
+              ]
+          }
 
-        class MainActivity : FlutterActivity() {
-            override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
-                super.configureFlutterEngine(flutterEngine)
-                MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "tele_cinema/device")
-                    .setMethodCallHandler { call, result ->
-                        if (call.method == "isTv") {
-                            val pm = packageManager
-                            result.success(
-                                pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
-                                    pm.hasSystemFeature(PackageManager.FEATURE_TELEVISION)
-                            )
-                        } else if (call.method == "openExternal") {
-                            val url = call.argument<String>("url")
-                            if (url == null) { result.success(false); return@setMethodCallHandler }
-                            val uri = android.net.Uri.parse(url)
-                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, uri)
-                            intent.setDataAndType(uri, "video/*")
-                            try {
-                                startActivity(android.content.Intent.createChooser(intent, "تشغيل بواسطة"))
-                                result.success(true)
-                            } catch (e: Exception) {
-                                result.success(false)
-                            }
-                        } else {
-                            result.notImplemented()
-                        }
-                    }
-            }
-        }
-        EOF
-        echo "✅ MainActivity created"
+          subprojects {
+              afterEvaluate { project ->
+                  if (project.hasProperty('android')) {
+                      project.android {
+                          if (namespace == null) {
+                              namespace project.group.toString()
+                          }
+                          compileSdkVersion 34
+                      }
+                  }
+              }
+          }
+          GRADLE_EOF
+          echo "build.gradle patched"
 
-    - name: Install dependencies
-      run: flutter pub get
+      - name: Build release APK
+        run: flutter build apk --release
 
-    - name: Generate launcher icons
-      run: flutter pub run flutter_launcher_icons
-
-    # ✅ الخطوة الجديدة: إصلاح Gradle للحزم القديمة
-    - name: Fix Gradle for wakelock_plus and other packages
-      run: |
-        cat >> android/build.gradle << 'EOF'
-
-        // ✅ Fix: متغيرات flutter للحزم القديمة (wakelock_plus, package_info_plus)
-        ext {
-            flutter = [
-                compileSdkVersion: 34,
-                minSdkVersion: 21,
-                targetSdkVersion: 34,
-                ndkVersion: "25.1.8937393",
-                kotlin_version: "1.9.0"
-            ]
-        }
-        
-        subprojects {
-            afterEvaluate { project ->
-                if (project.hasProperty('android')) {
-                    project.android {
-                        if (namespace == null) {
-                            namespace project.group.toString()
-                        }
-                        compileSdkVersion 34
-                        buildToolsVersion "34.0.0"
-                    }
-                }
-            }
-        }
-        EOF
-        
-        echo "✅ Gradle patched successfully"
-        echo "=== Last 30 lines of build.gradle ==="
-        tail -30 android/build.gradle
-
-    - name: Build APK
-      run: flutter build apk --release
-
-    - name: Upload APK artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: tele-cinema-apk
-        path: build/app/outputs/flutter-apk/app-release.apk
-        retention-days: 30
-
-    - name: Create Release (on tag)
-      if: startsWith(github.ref, 'refs/tags/')
-      uses: softprops/action-gh-release@v1
-      with:
-        files: build/app/outputs/flutter-apk/app-release.apk
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: tele-cinema-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 30
