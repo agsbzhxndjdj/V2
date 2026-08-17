@@ -1,18 +1,19 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dio/dio.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
-import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
+
 import 'core.dart';
 import 'lang.dart';
-import 'ui.dart';
+import 'tv.dart';
+import 'screens/player_screen.dart';
+import 'models/site_movie.dart';
 
 /* ======== 🔄 تجميع السلاسل والأجزاء تلقائياً ======== */
 class Parts {
@@ -249,7 +250,7 @@ class Marathon {
                 leading: const Icon(Icons.movie, size: 18),
                 title: Text(m.title, style: const TextStyle(fontSize: 12)),
                 trailing: IconButton(icon: Icon(Icons.play_arrow, color: AppTheme.accent),
-                    onPressed: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => PlayerScreen(title: m.title, url: m.videoUrl, movie: m))); }))).toList()))));
+                    onPressed: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => TvPlayer(movie: m))); }))).toList()))));
   }
 }
 
@@ -516,43 +517,6 @@ class Vault {
   }
 }
 
-/* ======== 📺 تشغيل خارجي / Cast ======== */
-class CastTv {
-  static Future open(BuildContext context, Movie m) async {
-    try {
-      final ok = await const MethodChannel('tele_cinema/device').invokeMethod<bool>('openExternal', {'url': m.videoUrl});
-      if (ok != true && context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('لا يوجد مشغل خارجي')));
-    } catch (_) {}
-  }
-}
-
-/* ======== 🎬 TMDB إضافي: طاقم + حقائق ======== */
-class TmdbX {
-  static Future<Map<String, dynamic>?> details(int id) async {
-    try {
-      final r = await Dio().get('https://api.themoviedb.org/3/movie/$id',
-          queryParameters: {'api_key': Tmdb.apiKey, 'language': 'ar-SA', 'append_to_response': 'credits'});
-      return Map<String, dynamic>.from(r.data);
-    } catch (_) { return null; }
-  }
-
-  static List<Map<String, dynamic>> castOf(Map d) =>
-      List<Map<String, dynamic>>.from(((d['credits']?['cast'] as List?) ?? []).take(8).map((e) => Map<String, dynamic>.from(e)));
-
-  static List<String> factsOf(Map d, Movie m) {
-    final f = <String>[];
-    final ot = (d['original_title'] ?? '').toString();
-    if (ot.isNotEmpty && Search.norm(ot) != Search.norm(m.title)) f.add('الأصل: $ot');
-    final cs = (d['production_countries'] as List? ?? []);
-    if (cs.isNotEmpty) f.add('إنتاج: ${cs.map((e) => e['name']).take(2).join('، ')}');
-    final rt = (d['runtime'] as int? ?? 0);
-    if (rt > 0) f.add('المدة الرسمية: $rt د');
-    final bud = (d['budget'] as int? ?? 0);
-    if (bud > 0) f.add('الميزانية: ${(bud / 1000000).round()}M\$');
-    return f;
-  }
-}
-
 /* ======== 🌌 الخلفية الحية ======== */
 Widget liveWallBg() {
   final h = Store.history();
@@ -713,7 +677,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
               Padding(padding: const EdgeInsets.symmetric(horizontal: 3), child: FilterChip(
                   label: Text('الـ${y}s', style: const TextStyle(fontSize: 11)),
                   selected: _decade == y,
-                  onSelected: (_) => setState(() => _decade = _decade == y ? 0 : y))),
+                  onSelected: (_) => setState(() => _decade = y == _decade ? 0 : y))),
           ])),
           const SizedBox(height: 14),
           if (list.isEmpty)
@@ -810,7 +774,7 @@ class _WheelPainter extends CustomPainter {
     c.drawPath(p, Paint()..color = Colors.white);
   }
   @override
-  bool shouldRepaint(covariant _WheelPainter o) => o.rot != rot;
+  bool shouldRepaint(covariant _WheelPainter o) => o.rot != o.rot;
 }
 
 /* ======== الإنجازات ======== */
@@ -895,37 +859,12 @@ class AchievementsScreen extends StatelessWidget {
   }
 
   Widget _card(String v, String l) => Container(padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(color: const Color(0xFF151B23), borderRadius: BorderRadius.circular(14)),
+      decoration: BoxDecoration(color: const Color(0xFF151B23), borderRadius: BorderRadius.circular(12)),
       child: Column(children: [
         Text(v, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppTheme.accent)),
         const SizedBox(height: 4),
         Text(l, style: const TextStyle(fontSize: 10, color: Colors.grey)),
       ]));
-}
-
-/* ======== معرض البوستر ======== */
-class PosterScreen extends StatelessWidget {
-  final Movie m;
-  const PosterScreen({super.key, required this.m});
-
-  Future _save(BuildContext context) async {
-    try {
-      final dir = await getExternalStorageDirectory();
-      final p = '${dir!.path}/poster_${m.msgId}.jpg';
-      await Dio().download(m.poster, p);
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('حُفظ: $p')));
-    } catch (_) {}
-  }
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(backgroundColor: Colors.black, title: const Text('البوستر 🖼️'), actions: [
-        IconButton(icon: const Icon(Icons.download), onPressed: () => _save(context)),
-      ]),
-      body: InteractiveViewer(
-          minScale: 0.8, maxScale: 4,
-          child: Center(child: Hero(tag: 'poster_${m.id}', child: CachedNetworkImage(imageUrl: m.poster, fit: BoxFit.contain)))));
 }
 
 /* ======== التعليقات ======== */
@@ -1000,23 +939,7 @@ class ShareCard {
   }
 }
 
-/* ======== التحميل الذكي على WiFi ======== */
-class SmartDownload {
-  static Future check() async {
-    if (!Store.getBool('smartDl')) return;
-    try {
-      final r = await Connectivity().checkConnectivity();
-      if (!r.contains(ConnectivityResult.wifi)) return;
-    } catch (_) { return; }
-    for (final m in Store.watchLater()) {
-      if (Downloader.isActive(m.id) || Store.downloads().containsKey(m.id)) continue;
-      Downloader.start(m);
-      break;
-    }
-  }
-}
-
-/* ======== شاشة تفاصيل الفيلم ======== */
+/* ======== 🎬 شاشة تفاصيل الفيلم ======== */
 class MovieDetailsScreen extends StatelessWidget {
   final Movie m;
   const MovieDetailsScreen({super.key, required this.m});
@@ -1030,6 +953,7 @@ class MovieDetailsScreen extends StatelessWidget {
           SliverAppBar(
             expandedHeight: 300,
             pinned: true,
+            backgroundColor: const Color(0xFF0B0F14),
             flexibleSpace: FlexibleSpaceBar(
               background: Stack(
                 fit: StackFit.expand,
@@ -1037,11 +961,11 @@ class MovieDetailsScreen extends StatelessWidget {
                   if (m.poster.isNotEmpty)
                     CachedNetworkImage(imageUrl: m.poster, fit: BoxFit.cover),
                   Container(
-                    decoration: BoxDecoration(
+                    decoration: const BoxDecoration(
                       gradient: LinearGradient(
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
-                        colors: [Colors.transparent, const Color(0xFF0B0F14)],
+                        colors: [Colors.transparent, Color(0xFF0B0F14)],
                       ),
                     ),
                   ),
@@ -1078,7 +1002,7 @@ class MovieDetailsScreen extends StatelessWidget {
                           icon: const Icon(Icons.play_arrow),
                           label: const Text('تشغيل'),
                           onPressed: () {
-                            Navigator.push(context, MaterialPageRoute(builder: (_) => PlayerScreen(movie: _toSiteMovie())));
+                            Navigator.push(context, MaterialPageRoute(builder: (_) => TvPlayer(movie: m)));
                           },
                         ),
                       ),
@@ -1110,9 +1034,12 @@ class MovieDetailsScreen extends StatelessWidget {
                       spacing: 6,
                       children: m.genres.map((g) => Chip(label: Text(g))).toList(),
                     ),
+                    const SizedBox(height: 16),
                   ],
-                  const SizedBox(height: 16),
                   Text('من: ${m.channel}', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                  const SizedBox(height: 8),
+                  if (m.qualityOptions.length > 1)
+                    Text('متعدد الجودات (${m.qualityOptions.length})', style: const TextStyle(color: Colors.purple, fontSize: 12)),
                 ],
               ),
             ),
@@ -1120,11 +1047,5 @@ class MovieDetailsScreen extends StatelessWidget {
         ],
       ),
     );
-  }
-
-  // تحويل Movie إلى SiteMovie للتوافق مع PlayerScreen الجديد
-  dynamic _toSiteMovie() {
-    // استيراد SiteMovie
-    return null;
   }
 }
