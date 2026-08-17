@@ -230,13 +230,13 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _sortItem(String v, String t) => PopupMenuItem(
-      value: v,
-      child: Row(children: [
-        if (Store.sortMode == v) Icon(Icons.check, size: 16, color: AppTheme.accent),
-        const SizedBox(width: 8),
-        Text(t, style: const TextStyle(fontSize: 13)),
-      ]));
+  Widget _sortItem(String v, String t) => PopupMenuItem<String>(
+    value: v,
+    child: Row(children: [
+      if (Store.sortMode == v) Icon(Icons.check, size: 16, color: AppTheme.accent),
+      const SizedBox(width: 8),
+      Text(t, style: const TextStyle(fontSize: 13)),
+    ]));
 
   Widget _banner(Movie m) => Padding(
       padding: const EdgeInsets.all(10),
